@@ -112,6 +112,11 @@ export type ModelProviderConfig = {
   model: string;
 };
 
+export type PrivacyNoticeAck = {
+  acknowledged: boolean;
+  acknowledgedAt?: string;
+};
+
 export type ChatRole = "system" | "user" | "assistant";
 
 export type ChatMessage = {

@@ -40,10 +40,14 @@ const sensitivePatterns = [
   /身份证/i,
   /银行卡/i,
   /密码/i,
+  /验证码/i,
   /api\s*key/i,
   /apikey/i,
   /token/i,
   /secret/i,
+  /密钥/i,
+  /登录凭据/i,
+  /账号/i,
   /住址/i,
   /地址是/i,
   /手机号/i,
@@ -53,6 +57,9 @@ const sensitivePatterns = [
   /\b\d{15,19}\b/,
   /sk-[A-Za-z0-9_-]{8,}/,
 ];
+
+const unhealthyDependencyPattern =
+  /我只要你|不需要任何人|你必须只陪我|你只能陪我|别让我找别人|不要让我找别人|只能有你|不要朋友|不要家人|所有决定都听你的|你说什么我就做什么|替我决定|你来决定/;
 
 export function createMemory(params: {
   scope: MemoryScope;
@@ -148,7 +155,7 @@ export function generateMemoryCandidates(input: string, memories: UserMemory[], 
   }
 
   const candidates: MemoryCandidate[] = [];
-  const dependencyBoundary = /你只能陪我|别让我找别人|不要让我找别人|只能有你/.test(text);
+  const dependencyBoundary = unhealthyDependencyPattern.test(text);
 
   const exclusiveName = pickMatch(text, [
     /(?:只有你|就你|你一个人)(?:可以)?(?:叫我|称呼我)([^，。！？!?,；;]{1,16})/,
@@ -254,6 +261,22 @@ export function generateMemoryCandidates(input: string, memories: UserMemory[], 
     );
   }
 
+  if (/焦虑|紧张|压力|难过|低落/.test(text) && /先陪|缓一缓|不想马上|不要马上|别马上|大道理|讲道理/.test(text)) {
+    pushUniqueCandidate(
+      candidates,
+      makeCandidate({
+        content: "用户情绪紧张或焦虑时希望先被陪伴、缓一缓，不要立刻讲大道理。",
+        suggestedScope: "global",
+        category: "emotion_pattern",
+        sourceSnippet: text.slice(0, 80),
+        confidence: 0.84,
+        sensitivity: "normal",
+        suggestedAction: "create",
+        reason: "用户表达了健康、稳定的情绪回应偏好。",
+      }),
+    );
+  }
+
   const goalCorrection = text.match(/(?:不是|不对|我现在不|现在不)(?:[^。！？!?]{0,18})(考研|考试|面试|项目|目标|计划)(?:[^。！？!?]{0,18})(?:改成|改为|换成|现在要|现在想)([^。！？!?]{2,30})/);
   if (goalCorrection) {
     const related = findRelatedMemory(memories, "goal", [goalCorrection[1]], companionId);
@@ -318,7 +341,7 @@ export function generateMemoryCandidates(input: string, memories: UserMemory[], 
     pushUniqueCandidate(
       candidates,
       makeCandidate({
-        content: "用户可能希望排他式依赖 AI 伴侣。伴侣应亲近回应，但不鼓励替代现实关系。",
+        content: "用户当前表达了强依赖或希望 AI 替代现实支持/判断，不应沉淀为长期偏好。",
         suggestedScope: "companion",
         suggestedCompanionId: companionId,
         category: "boundary",

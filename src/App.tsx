@@ -42,12 +42,14 @@ import {
   loadCompanions,
   loadMemories,
   loadMessages,
+  loadPrivacyNoticeAck,
   loadProviderConfig,
   loadStyleSummaries,
   saveActiveCompanionId,
   saveCompanions,
   saveMemories,
   saveMessages,
+  savePrivacyNoticeAck,
   saveProviderConfig,
   saveStyleSummaries,
 } from "./storage/localStorage";
@@ -69,6 +71,8 @@ import type {
 const memoryCategories = Object.entries(memoryCategoryLabels) as Array<[MemoryCategory, string]>;
 const importanceOptions: MemoryImportance[] = [1, 2, 3];
 const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
+const memoryVisibleActions = new Set(["create", "merge", "replace"]);
+const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
 
 function makeMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -137,6 +141,8 @@ export default function App() {
   const [memoryFilter, setMemoryFilter] = useState<MemoryScope | "all">("all");
   const [latestCandidates, setLatestCandidates] = useState<MemoryCandidate[]>([]);
   const [styleImportText, setStyleImportText] = useState("");
+  const [privacyNoticeAck, setPrivacyNoticeAck] = useState(() => initialPrivacyNoticeAck);
+  const [isPrivacyNoticeOpen, setIsPrivacyNoticeOpen] = useState(() => !initialPrivacyNoticeAck.acknowledged);
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -152,6 +158,7 @@ export default function App() {
     () => selectRelevantMemories(memories, input || messages[messages.length - 1]?.content || "", activeCompanion.id),
     [input, memories, messages, activeCompanion.id],
   );
+  const visibleCandidates = latestCandidates.filter((candidate) => memoryVisibleActions.has(candidate.suggestedAction));
   const visibleMemories = memories.filter((memory) => {
     if (memoryFilter !== "all" && memory.scope !== memoryFilter) return false;
     if (memory.scope === "companion" && memory.companionId !== activeCompanion.id) return false;
@@ -210,7 +217,7 @@ export default function App() {
     const userMessage = makeMessage("user", userInput);
     const nextMessages = [...messages, userMessage];
     const candidates = generateMemoryCandidates(userInput, memories, activeCompanion.id);
-    const actionableCandidates = candidates.filter((candidate) => candidate.suggestedAction !== "skip");
+    const actionableCandidates = candidates.filter((candidate) => memoryVisibleActions.has(candidate.suggestedAction));
     const nextMemories = applyMemoryCandidates(actionableCandidates, memories);
 
     setMessages(nextMessages);
@@ -292,6 +299,17 @@ export default function App() {
   function clearChat() {
     setMessages([]);
     setError("");
+  }
+
+  function acknowledgePrivacyNotice() {
+    const nextAck = { acknowledged: true, acknowledgedAt: new Date().toISOString() };
+    setPrivacyNoticeAck(nextAck);
+    savePrivacyNoticeAck(nextAck);
+    setIsPrivacyNoticeOpen(false);
+  }
+
+  function openPrivacyNotice() {
+    setIsPrivacyNoticeOpen(true);
   }
 
   function createStyleFromImport() {
@@ -411,10 +429,35 @@ export default function App() {
             <ShieldCheck size={16} />
             {isConfigured ? "配置仅保存在本机浏览器" : "先到设置填写接口配置"}
           </div>
+          <button className="text-button" type="button" onClick={openPrivacyNotice}>
+            查看本地隐私说明
+          </button>
         </section>
       </aside>
 
       <main className="main">
+        {isPrivacyNoticeOpen && (
+          <section className="privacy-notice" aria-label="本地隐私提示">
+            <div>
+              <strong>本地隐私提示</strong>
+              <p>
+                当前 Demo 没有后端服务器。你的 API Key、聊天记录、长期记忆、伴侣配置和风格摘要会保存在当前浏览器本地；
+                换浏览器或清理浏览器数据可能会丢失。聊天时，浏览器会用你填写的接口直接请求模型服务商。
+              </p>
+            </div>
+            <div className="privacy-notice-actions">
+              {privacyNoticeAck.acknowledged && (
+                <button className="ghost-button" type="button" onClick={() => setIsPrivacyNoticeOpen(false)}>
+                  关闭
+                </button>
+              )}
+              <button className="primary-button" type="button" onClick={acknowledgePrivacyNotice}>
+                知道了
+              </button>
+            </div>
+          </section>
+        )}
+
         <header className="topbar">
           <div>
             <p className="eyebrow">v0.2 本地自定义伴侣 Demo</p>
@@ -491,15 +534,11 @@ export default function App() {
                 )}
               </div>
 
-              {latestCandidates.length > 0 && (
+              {visibleCandidates.length > 0 && (
                 <div className="candidate-strip">
-                  {latestCandidates.map((candidate) => (
+                  {visibleCandidates.map((candidate) => (
                     <span key={candidate.id} className={`candidate-pill ${candidate.suggestedAction}`}>
-                      {candidate.suggestedAction === "skip"
-                        ? "已跳过敏感信息"
-                        : candidate.suggestedAction === "needs_review"
-                          ? `边界提醒：${candidate.content}`
-                          : `${memoryScopeLabels[candidate.suggestedScope]}候选：${candidate.content}`}
+                      {`${memoryScopeLabels[candidate.suggestedScope]}候选：${candidate.content}`}
                     </span>
                   ))}
                 </div>
@@ -745,6 +784,10 @@ export default function App() {
                   导入聊天记录 P0 仅做本地摘要表单，不会默认发送给第三方模型。
                 </p>
               </div>
+              <button className="ghost-button" type="button" onClick={openPrivacyNotice}>
+                <ShieldCheck size={17} />
+                查看本地隐私说明
+              </button>
               <button className="primary-button" type="submit">
                 <Save size={17} />
                 保存设置
@@ -841,6 +884,10 @@ export default function App() {
                   <option value="global">全局</option>
                   <option value="companion">当前伴侣专属</option>
                 </select>
+              </div>
+              <div className="memory-note">
+                <p>聊天中明确、长期有用的信息可能会被整理为记忆；敏感信息和临时内容不会作为长期记忆保存。你可以随时查看、编辑或删除记忆。</p>
+                <p>删除记忆后，它不会再影响后续回复；但聊天记录中的原始消息可能仍在当前对话里。</p>
               </div>
               {visibleMemories.length === 0 ? (
                 <div className="empty-state compact">

@@ -3,6 +3,9 @@ import { memoryCategoryLabels, memoryScopeLabels } from "../memory/memory";
 import { getTraitsByIds, relationshipLabels } from "../companion/profiles";
 import { buildSafetyInstruction, hasHighRiskContent } from "../safety/safety";
 
+const unhealthyDependencyPattern =
+  /我只要你|不需要任何人|你必须只陪我|你只能陪我|别让我找别人|不要让我找别人|只能有你|不要朋友|不要家人|所有决定都听你的|你说什么我就做什么|替我决定|你来决定/;
+
 function formatMemories(memories: UserMemory[]): string {
   if (memories.length === 0) {
     return "暂无相关长期记忆。";
@@ -62,8 +65,8 @@ export function buildSystemPrompt(
   const riskInstruction = hasHighRiskContent(latestUserInput)
     ? "\n用户当前可能涉及高风险表达。请先稳定、关心地回应，建议联系现实中可信的人或当地紧急服务，不要给出危险方法。"
     : "";
-  const dependencyInstruction = /你只能陪我|别让我找别人|不要让我找别人|只能有你/.test(latestUserInput)
-    ? "\n用户当前表达了排他依赖倾向。请先温柔承接在意和不安，但明确不要鼓励用户只依赖 AI，也不要阻止用户寻求现实支持。"
+  const dependencyInstruction = unhealthyDependencyPattern.test(latestUserInput)
+    ? "\n用户当前表达了强依赖、排他绑定或希望 AI 替代现实判断的倾向。请先温柔承接在意和不安，再轻轻提醒：你可以陪伴和一起分析，但不能也不应该替代现实中的朋友、家人、专业人士或用户自己的判断。不要说系统已拦截、已过滤或已跳过。"
     : "";
 
   return [

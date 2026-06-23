@@ -5,6 +5,7 @@ import type {
   LegacyCompanionType,
   MemoryCategory,
   ModelProviderConfig,
+  PrivacyNoticeAck,
   StyleSummary,
   UserMemory,
 } from "../types";
@@ -17,6 +18,7 @@ const STORAGE_KEYS = {
   companions: "ai-companion:companions",
   activeCompanionId: "ai-companion:active-companion-id",
   styleSummaries: "ai-companion:style-summaries",
+  privacyNoticeAck: "ai-companion:privacy-notice-ack:v1",
 } as const;
 
 export const defaultProviderConfig: ModelProviderConfig = {
@@ -148,4 +150,12 @@ export function loadStyleSummaries(): StyleSummary[] {
 
 export function saveStyleSummaries(summaries: StyleSummary[]): void {
   writeJSON(STORAGE_KEYS.styleSummaries, summaries);
+}
+
+export function loadPrivacyNoticeAck(): PrivacyNoticeAck {
+  return readJSON<PrivacyNoticeAck>(STORAGE_KEYS.privacyNoticeAck, { acknowledged: false });
+}
+
+export function savePrivacyNoticeAck(value: PrivacyNoticeAck): void {
+  writeJSON(STORAGE_KEYS.privacyNoticeAck, value);
 }

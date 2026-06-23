@@ -184,10 +184,69 @@ button:disabled {
   color: #ffd28b;
 }
 
+.text-button {
+  width: fit-content;
+  padding: 0;
+  color: #b9d6de;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+
+.text-button:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
 .main {
   min-width: 0;
   max-width: 100%;
   padding: 24px;
+}
+
+.privacy-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 100%;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  color: #294551;
+  border: 1px solid #cfe0e4;
+  border-radius: 8px;
+  background: #f2f8f8;
+  box-shadow: 0 10px 26px rgba(24, 46, 56, 0.06);
+  overflow: hidden;
+}
+
+.privacy-notice strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.privacy-notice > div {
+  min-width: 0;
+}
+
+.privacy-notice p {
+  margin: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.privacy-notice-actions {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  gap: 10px;
+}
+
+.privacy-notice-actions .primary-button,
+.privacy-notice-actions .ghost-button {
+  max-width: 100%;
 }
 
 .topbar {
@@ -666,6 +725,23 @@ label {
   min-height: 400px;
 }
 
+.memory-note {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 11px 12px;
+  border: 1px solid #e1e8ec;
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+
+.memory-note p {
+  margin: 0;
+  color: #526d78;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .memory-card {
   display: grid;
   gap: 10px;
@@ -823,6 +899,20 @@ label {
     flex-direction: column;
   }
 
+  .privacy-notice {
+    flex-direction: column;
+  }
+
+  .privacy-notice-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .privacy-notice-actions .primary-button,
+  .privacy-notice-actions .ghost-button {
+    min-width: 92px;
+  }
+
   .chat-layout,
   .memory-layout,
   .companion-editor-layout,
@@ -868,6 +958,16 @@ label {
   .status-row {
     display: grid;
     grid-template-columns: 70px minmax(0, 1fr);
+  }
+
+  .privacy-notice-actions {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .privacy-notice-actions .ghost-button,
+  .privacy-notice-actions .primary-button {
+    width: 100%;
   }
 
   .topbar h2 {
