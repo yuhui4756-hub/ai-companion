@@ -4,6 +4,8 @@ import {
   Bot,
   Brain,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Heart,
   KeyRound,
   MessageCircle,
@@ -23,8 +25,16 @@ import {
   getCompanionProfile,
   getTraitConflictLabels,
   getTraitsByIds,
+  isDefaultCompanionId,
   relationshipLabels,
 } from "./companion/profiles";
+import {
+  buildOnboardingSummary,
+  createCompanionFromOnboarding,
+  directionOptions,
+  proactiveOptions,
+  toneOptions,
+} from "./companion/onboarding";
 import { sendCompanionMessage } from "./chat-engine/chat";
 import {
   applyMemoryCandidates,
@@ -42,6 +52,7 @@ import {
   loadCompanions,
   loadMemories,
   loadMessages,
+  loadCompanionOnboardingState,
   loadPrivacyNoticeAck,
   loadProviderConfig,
   loadStyleSummaries,
@@ -50,6 +61,7 @@ import {
   saveCompanions,
   saveMemories,
   saveMessages,
+  saveCompanionOnboardingState,
   savePrivacyNoticeAck,
   saveProviderConfig,
   saveStyleSummaries,
@@ -64,6 +76,8 @@ import type {
   MemoryImportance,
   MemoryScope,
   ModelProviderConfig,
+  OnboardingAnswer,
+  OnboardingStep,
   RelationshipType,
   StyleSummary,
   UserMemory,
@@ -74,6 +88,10 @@ const importanceOptions: MemoryImportance[] = [1, 2, 3];
 const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
 const memoryVisibleActions = new Set(["create", "merge", "replace"]);
 const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
+const initialOnboardingState = loadCompanionOnboardingState();
+const initialMessages = loadMessages();
+const shouldAutoOpenOnboarding =
+  initialOnboardingState.status === "new" && initialMessages.length === 0;
 const providerPresets = [
   {
     id: "deepseek-flash",
@@ -147,12 +165,19 @@ function companionDisplayName(companion: CompanionProfile): string {
   return companion.name.trim() || "未命名伴侣";
 }
 
+function nextOnboardingState(status: "skipped" | "completed") {
+  return {
+    status,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
   const [activeCompanionId, setActiveCompanionId] = useState<string>(() => loadActiveCompanionId());
   const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => loadProviderConfig());
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
+  const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages);
   const [memories, setMemories] = useState<UserMemory[]>(() => loadMemories());
   const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => loadStyleSummaries());
   const [input, setInput] = useState("");
@@ -171,6 +196,16 @@ export default function App() {
   const [privacyNoticeAck, setPrivacyNoticeAck] = useState(() => initialPrivacyNoticeAck);
   const [isPrivacyNoticeOpen, setIsPrivacyNoticeOpen] = useState(() => !initialPrivacyNoticeAck.acknowledged);
   const [dataActionMessage, setDataActionMessage] = useState("");
+  const [onboardingState, setOnboardingState] = useState(() => initialOnboardingState);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => shouldAutoOpenOnboarding);
+  const [isOnboardingManuallyOpened, setIsOnboardingManuallyOpened] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
+  const [onboardingAnswer, setOnboardingAnswer] = useState<OnboardingAnswer>({
+    companionshipDirection: "listen",
+    toneFeeling: "natural_friend",
+    proactiveLevel: "medium",
+    companionName: "",
+  });
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -192,6 +227,17 @@ export default function App() {
     if (memory.scope === "companion" && memory.companionId !== activeCompanion.id) return false;
     return memory.status !== "deleted";
   });
+  const hasUserCreatedCompanion = useMemo(
+    () => companions.some((companion) => companion.source !== "default" && !isDefaultCompanionId(companion.id)),
+    [companions],
+  );
+  const shouldShowOnboarding =
+    isOnboardingOpen &&
+    activeView === "chat" &&
+    (isOnboardingManuallyOpened ||
+      (onboardingState.status === "new" && !hasUserCreatedCompanion && messages.length === 0));
+  const onboardingDraft = useMemo(() => createCompanionFromOnboarding(onboardingAnswer), [onboardingAnswer]);
+  const onboardingSummary = useMemo(() => buildOnboardingSummary(onboardingAnswer), [onboardingAnswer]);
 
   useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
   useEffect(() => saveCompanions(companions), [companions]);
@@ -237,9 +283,50 @@ export default function App() {
 
   function addCompanion() {
     const companion = newCompanion();
-    setCompanions((current) => [companion, ...current]);
+    setCompanions((current) => [{ ...companion, source: "manual" }, ...current]);
     setActiveCompanionId(companion.id);
     setActiveView("companion");
+  }
+
+  function openCompanionOnboarding() {
+    setOnboardingStep(0);
+    setIsOnboardingManuallyOpened(true);
+    setIsOnboardingOpen(true);
+    setActiveView("chat");
+  }
+
+  function skipOnboarding() {
+    const state = nextOnboardingState("skipped");
+    setOnboardingState(state);
+    saveCompanionOnboardingState(state);
+    setIsOnboardingOpen(false);
+    setIsOnboardingManuallyOpened(false);
+    setOnboardingStep(0);
+    setActiveView("chat");
+  }
+
+  function goNextOnboardingStep() {
+    setOnboardingStep((current) => Math.min(current + 1, 3) as OnboardingStep);
+  }
+
+  function goPreviousOnboardingStep() {
+    setOnboardingStep((current) => Math.max(current - 1, 0) as OnboardingStep);
+  }
+
+  function finishOnboarding() {
+    const companion = createCompanionFromOnboarding(onboardingAnswer);
+    setCompanions((current) => [companion, ...current]);
+    setActiveCompanionId(companion.id);
+    if (messages.length === 0 && companion.openingMessage) {
+      setMessages([makeMessage("assistant", companion.openingMessage)]);
+    }
+    const state = nextOnboardingState("completed");
+    setOnboardingState(state);
+    saveCompanionOnboardingState(state);
+    setIsOnboardingOpen(false);
+    setIsOnboardingManuallyOpened(false);
+    setOnboardingStep(0);
+    setActiveView("chat");
   }
 
   function toggleTrait(traitId: string) {
@@ -467,6 +554,153 @@ export default function App() {
     );
   }
 
+  function renderOnboardingOptions<T extends string>(
+    options: readonly { value: T; label: string; description: string }[],
+    selectedValue: T | undefined,
+    onSelect: (value: T) => void,
+  ) {
+    return (
+      <div className="onboarding-options">
+        {options.map((option) => (
+          <button
+            className={selectedValue === option.value ? "onboarding-option selected" : "onboarding-option"}
+            key={option.value}
+            type="button"
+            onClick={() => onSelect(option.value)}
+          >
+            <strong>{option.label}</strong>
+            <span>{option.description}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderOnboardingPanel() {
+    return (
+      <section className="workspace-panel onboarding-panel">
+        <div className="onboarding-progress" aria-label="伴侣创建进度">
+          {[0, 1, 2, 3].map((step) => (
+            <span className={onboardingStep >= step ? "active" : ""} key={step} />
+          ))}
+        </div>
+
+        {onboardingStep === 0 && (
+          <>
+            <div className="onboarding-heading">
+              <p className="eyebrow">认识 TA 的第一步</p>
+              <h3>你想让 TA 怎么陪你？</h3>
+              <p>不用选得很准，先选现在最想靠近的感觉。</p>
+            </div>
+            {renderOnboardingOptions(
+              directionOptions,
+              onboardingAnswer.companionshipDirection,
+              (value) => setOnboardingAnswer((current) => ({ ...current, companionshipDirection: value })),
+            )}
+            {onboardingAnswer.companionshipDirection === "custom" && (
+              <textarea
+                value={onboardingAnswer.directionCustomText ?? ""}
+                onChange={(event) =>
+                  setOnboardingAnswer((current) => ({ ...current, directionCustomText: event.target.value }))
+                }
+                placeholder="比如：像一个会陪我复盘生活、但不催我的人。"
+                rows={3}
+              />
+            )}
+            <p className="onboarding-hint">不确定的话可以先跳过。</p>
+          </>
+        )}
+
+        {onboardingStep === 1 && (
+          <>
+            <div className="onboarding-heading">
+              <p className="eyebrow">说话感觉</p>
+              <h3>TA 说话像什么感觉，会让你舒服？</h3>
+              <p>这会影响 TA 的语气，不是死板设定，以后还能改。</p>
+            </div>
+            {renderOnboardingOptions(
+              toneOptions,
+              onboardingAnswer.toneFeeling,
+              (value) => setOnboardingAnswer((current) => ({ ...current, toneFeeling: value })),
+            )}
+            {onboardingAnswer.toneFeeling === "custom" && (
+              <textarea
+                value={onboardingAnswer.toneCustomText ?? ""}
+                onChange={(event) =>
+                  setOnboardingAnswer((current) => ({ ...current, toneCustomText: event.target.value }))
+                }
+                placeholder="比如：像熟人一样自然，别一上来讲大道理。"
+                rows={3}
+              />
+            )}
+          </>
+        )}
+
+        {onboardingStep === 2 && (
+          <>
+            <div className="onboarding-heading">
+              <p className="eyebrow">相处节奏</p>
+              <h3>你希望 TA 主动一点，还是等你开口？</h3>
+              <p>有人喜欢被轻轻带一下，有人喜欢自己慢慢说。</p>
+            </div>
+            {renderOnboardingOptions(
+              proactiveOptions,
+              onboardingAnswer.proactiveLevel,
+              (value) => setOnboardingAnswer((current) => ({ ...current, proactiveLevel: value })),
+            )}
+          </>
+        )}
+
+        {onboardingStep === 3 && (
+          <>
+            <div className="onboarding-heading">
+              <p className="eyebrow">快开始了</p>
+              <h3>TA 大概长成这样了</h3>
+            </div>
+            <label>
+              给 TA 起个名字
+              <input
+                value={onboardingAnswer.companionName ?? ""}
+                onChange={(event) =>
+                  setOnboardingAnswer((current) => ({ ...current, companionName: event.target.value }))
+                }
+                placeholder="先空着也行，之后还能改"
+              />
+            </label>
+            <div className="onboarding-summary">
+              <strong>相处起来大概会是：</strong>
+              <p>{onboardingSummary}</p>
+              <span>{onboardingDraft.openingMessage}</span>
+            </div>
+          </>
+        )}
+
+        <div className="onboarding-actions">
+          {onboardingStep === 0 ? (
+            <button className="ghost-button" type="button" onClick={skipOnboarding}>
+              先跳过，直接进去看看
+            </button>
+          ) : (
+            <button className="ghost-button" type="button" onClick={goPreviousOnboardingStep}>
+              <ChevronLeft size={16} />
+              再改改
+            </button>
+          )}
+          {onboardingStep < 3 ? (
+            <button className="primary-button" type="button" onClick={goNextOnboardingStep}>
+              继续
+              <ChevronRight size={16} />
+            </button>
+          ) : (
+            <button className="primary-button" type="button" onClick={finishOnboarding}>
+              开始聊天
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   const isConfigured =
     Boolean(providerConfig.baseURL.trim()) &&
     Boolean(providerConfig.model.trim()) &&
@@ -579,7 +813,9 @@ export default function App() {
           </button>
         </header>
 
-        {activeView === "chat" && (
+        {shouldShowOnboarding && renderOnboardingPanel()}
+
+        {activeView === "chat" && !shouldShowOnboarding && (
           <div className="content-grid chat-layout">
             <section className="workspace-panel companion-panel">
               <div className="section-title">
@@ -615,8 +851,12 @@ export default function App() {
                 {messages.length === 0 ? (
                   <div className="empty-state">
                     <Brain size={30} />
-                    <h3>创建或选择一个伴侣，然后开始聊天</h3>
-                    <p>系统会注入当前伴侣设定、风格参考、全局记忆和当前伴侣专属记忆。</p>
+                    <h3>还没想好也没关系</h3>
+                    <p>可以先随便聊，也可以晚点再创建一个更合适的伴侣。</p>
+                    <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
+                      <Sparkles size={16} />
+                      帮我快速创建一个伴侣
+                    </button>
                   </div>
                 ) : (
                   messages.map((message) => (
@@ -704,6 +944,16 @@ export default function App() {
                   <Plus size={16} />
                   新建
                 </button>
+              </div>
+              <div className="privacy-callout companion-create-callout">
+                <Sparkles size={18} />
+                <div>
+                  <strong>想先凭感觉捏一个？</strong>
+                  <p>用 3 个轻问题快速生成一个更贴近你的伴侣，之后还能继续编辑。</p>
+                  <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
+                    帮我快速创建
+                  </button>
+                </div>
               </div>
               <div className="companion-list">
                 {companions.map((profile) => (

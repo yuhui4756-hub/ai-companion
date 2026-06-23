@@ -251,3 +251,37 @@
 - 工作区修改文件与测试交接一致：`README.md`、`src/App.tsx`、`src/model-provider/openai.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-A/B 验收通过，允许提交与推送。
+
+## 2026-06-23 v0.3-C 首次创建伴侣轻问卷复验通过与总控确认
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-C 返工后复验。
+- 结论：通过。上一轮 P0 阻塞问题“跳过首次轻问卷后无法从聊天空状态或伴侣页重新打开问卷”已修复。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- 首次问卷在清空 localStorage 后可自动展示，即使本地存在 5 个默认伴侣也不会误拦截。
+- 点击“先跳过，直接进去看看”后保存 skipped、不强迫创建、仍可进入聊天。
+- 跳过后，从聊天空状态“帮我快速创建一个伴侣”和伴侣页“帮我快速创建”均可重新打开三步轻问卷。
+- 完成问卷后状态为 completed，生成 `source: onboarding` 的伴侣，插入本地开场，刷新后不再自动弹出。
+- 三步问卷、结果页和开场文案保持轻松自然，不频繁自称 AI，不出现长免责声明。
+- 产品层透明说明仍保留在 README、隐私提示和设置页；聊天层不打断陪伴感。
+- v0.3-A/B 关键回归通过：模型预设、本地数据管理、导出隐私、错误脱敏、敏感信息和不健康依赖不沉淀均保持可用。
+- 移动端 390x844 无横向溢出。
+
+### 可后续优化
+
+- 后续可补自动化回归：`new -> skipped -> 聊天空状态重开问卷 -> skipped -> 伴侣页重开问卷 -> completed -> 刷新不再自动弹出`。
+- 后续可补 localStorage 状态机测试，覆盖默认伴侣存在时不阻止首次问卷展示。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`README.md`、`src/App.tsx`、`src/companion/profiles.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`、`src/companion/onboarding.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-C 返工复验通过，允许提交与推送。

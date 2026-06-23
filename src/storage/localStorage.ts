@@ -1,6 +1,7 @@
 import { defaultCompanions } from "../companion/profiles";
 import type {
   ChatMessage,
+  CompanionOnboardingState,
   CompanionProfile,
   LegacyCompanionType,
   LocalDataExport,
@@ -21,6 +22,7 @@ const STORAGE_KEYS = {
   activeCompanionId: "ai-companion:active-companion-id",
   styleSummaries: "ai-companion:style-summaries",
   privacyNoticeAck: "ai-companion:privacy-notice-ack:v1",
+  companionOnboarding: "ai-companion:companion-onboarding:v1",
 } as const;
 
 export const defaultProviderConfig: ModelProviderConfig = {
@@ -160,6 +162,16 @@ export function loadPrivacyNoticeAck(): PrivacyNoticeAck {
 
 export function savePrivacyNoticeAck(value: PrivacyNoticeAck): void {
   writeJSON(STORAGE_KEYS.privacyNoticeAck, value);
+}
+
+export function loadCompanionOnboardingState(): CompanionOnboardingState {
+  const state = readJSON<CompanionOnboardingState>(STORAGE_KEYS.companionOnboarding, { status: "new" });
+  if (state.status === "completed" || state.status === "skipped") return state;
+  return { status: "new", updatedAt: state.updatedAt };
+}
+
+export function saveCompanionOnboardingState(value: CompanionOnboardingState): void {
+  writeJSON(STORAGE_KEYS.companionOnboarding, value);
 }
 
 export function buildLocalDataExport(params: {

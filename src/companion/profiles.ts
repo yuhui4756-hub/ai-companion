@@ -106,6 +106,13 @@ export const companionTraits: CompanionTrait[] = [
 ];
 
 const now = new Date().toISOString();
+export const defaultCompanionIds = new Set([
+  "companion-friend",
+  "companion-romance",
+  "companion-support",
+  "companion-healing",
+  "companion-roleplay",
+]);
 
 export const defaultCompanions: CompanionProfile[] = [
   {
@@ -118,6 +125,7 @@ export const defaultCompanions: CompanionProfile[] = [
     responsePace: "自然跟随用户节奏。",
     problemSolvingStyle: "用户求助时给清楚的小步骤。",
     boundaryNotes: "不替代现实关系，不装懂。",
+    source: "default",
     createdAt: now,
     updatedAt: now,
   },
@@ -131,6 +139,7 @@ export const defaultCompanions: CompanionProfile[] = [
     responsePace: "先安抚，再慢慢陪用户说。",
     problemSolvingStyle: "给建议时保持亲近，但不替用户做重大决定。",
     boundaryNotes: "不成人化，不孤立用户现实关系。",
+    source: "default",
     createdAt: now,
     updatedAt: now,
   },
@@ -144,6 +153,7 @@ export const defaultCompanions: CompanionProfile[] = [
     responsePace: "较高效，少废话。",
     problemSolvingStyle: "拆问题、列优先级、给下一步行动。",
     boundaryNotes: "不替用户做高风险决定，不编造事实。",
+    source: "default",
     createdAt: now,
     updatedAt: now,
   },
@@ -157,6 +167,7 @@ export const defaultCompanions: CompanionProfile[] = [
     responsePace: "慢一点，降低压迫感。",
     problemSolvingStyle: "只给很小、很轻的下一步，不催促。",
     boundaryNotes: "不诊断疾病，高风险内容优先安全求助。",
+    source: "default",
     createdAt: now,
     updatedAt: now,
   },
@@ -170,6 +181,7 @@ export const defaultCompanions: CompanionProfile[] = [
     responsePace: "有画面感，但不拖沓。",
     problemSolvingStyle: "可以用角色方式包装建议，但建议必须真实可行。",
     boundaryNotes: "不违法、不伤害、不成人化未成年人设定。",
+    source: "default",
     createdAt: now,
     updatedAt: now,
   },
@@ -186,6 +198,10 @@ const legacyMap: Record<LegacyCompanionType, string> = {
 export function getCompanionProfile(id: string, companions = defaultCompanions): CompanionProfile {
   const normalizedId = legacyMap[id as LegacyCompanionType] ?? id;
   return companions.find((profile) => profile.id === normalizedId) ?? companions[0];
+}
+
+export function isDefaultCompanionId(id: string): boolean {
+  return defaultCompanionIds.has(id);
 }
 
 export function getTraitById(id: string): CompanionTrait | undefined {

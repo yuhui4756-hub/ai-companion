@@ -40,6 +40,8 @@ export type MemorySource = "chat" | "manual" | "import_summary";
 export type MemorySensitivity = "normal" | "sensitive";
 export type MemoryStatus = "active" | "superseded" | "expired" | "deleted";
 export type MemoryAction = "create" | "merge" | "replace" | "skip" | "needs_review";
+export type ProactiveLevel = "low" | "medium" | "high";
+export type CompanionSource = "default" | "manual" | "onboarding";
 
 export type CompanionProfile = {
   id: string;
@@ -52,6 +54,9 @@ export type CompanionProfile = {
   problemSolvingStyle?: string;
   activeStyleSummaryId?: string;
   boundaryNotes?: string;
+  proactiveLevel?: ProactiveLevel;
+  source?: CompanionSource;
+  openingMessage?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -138,6 +143,23 @@ export type SyncPolicy = {
   requiresExplicitConsent: boolean;
   mustEncryptAtRest: boolean;
   notes: string;
+};
+
+export type OnboardingStatus = "new" | "skipped" | "completed";
+export type OnboardingStep = 0 | 1 | 2 | 3;
+
+export type CompanionOnboardingState = {
+  status: OnboardingStatus;
+  updatedAt?: string;
+};
+
+export type OnboardingAnswer = {
+  companionshipDirection?: "listen" | "casual" | "clarify" | "encourage" | "roleplay" | "custom";
+  directionCustomText?: string;
+  toneFeeling?: "gentle_slow" | "natural_friend" | "direct_warm" | "lively" | "quiet" | "custom";
+  toneCustomText?: string;
+  proactiveLevel?: ProactiveLevel;
+  companionName?: string;
 };
 
 export type PrivacyNoticeAck = {
