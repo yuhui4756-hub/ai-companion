@@ -26,3 +26,5 @@ Thumbs.db
 # Local app data
 *.local.json
 local-data/
+.playwright-cli/
+output/
