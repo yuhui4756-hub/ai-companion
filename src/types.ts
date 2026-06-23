@@ -112,6 +112,34 @@ export type ModelProviderConfig = {
   model: string;
 };
 
+export type LocalDataExport = {
+  version: "v0.3";
+  exportedAt: string;
+  providerConfigWithoutApiKey: Omit<ModelProviderConfig, "apiKey"> & { apiKeyRemoved: true };
+  companions: CompanionProfile[];
+  memories: UserMemory[];
+  styleSummaries: StyleSummary[];
+};
+
+export type LocalDataCategory =
+  | "apiKey"
+  | "chatSessions"
+  | "memories"
+  | "styleSummaries"
+  | "companions"
+  | "privacyNotice";
+
+export type SyncCapability = "local_only" | "manual_export" | "user_authorized_sync";
+
+export type SyncPolicy = {
+  category: LocalDataCategory;
+  defaultCapability: SyncCapability;
+  canSync: boolean;
+  requiresExplicitConsent: boolean;
+  mustEncryptAtRest: boolean;
+  notes: string;
+};
+
 export type PrivacyNoticeAck = {
   acknowledged: boolean;
   acknowledgedAt?: string;

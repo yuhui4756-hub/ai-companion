@@ -215,3 +215,39 @@
 - 已执行敏感信息扫描：未发现真实 token、真实 API Key、真实身份证、银行卡或密码；命中项仅为安全规则和文档说明文本。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.2.1 验收通过，允许提交与推送。
+
+## 2026-06-23 v0.3-A/B 中间验收通过与总控确认
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-A/B 中间验收。
+- 结论：通过中间验收。
+- 阻塞问题：无。
+- 普通返工项：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- 设置页提供 DeepSeek V4 Flash、DeepSeek V4 Pro、OpenAI 兼容预设；预设只填写 providerName、baseURL、model，不填写 API Key。
+- 真实模型验收提示清楚：用户 Key 只应在网页设置页本地输入，测试记录、截图、交接报告不记录完整 Key。
+- 侧栏、错误提示和导出结构不会展示完整 API Key；页面只显示脱敏摘要。
+- 错误提示覆盖认证失败、额度/余额/频率限制、接口地址或模型名错误、请求参数错误、非 JSON、空 assistant 内容、网络/CORS/代理失败。
+- 服务商错误详情会对 `sk-*`、Bearer、token、secret、api_key 等内容做脱敏。
+- 本地数据管理可清除 API Key、当前聊天、长期记忆、风格摘要，并能保持对应本地状态一致。
+- 导出 JSON 包含版本、导出时间、去 Key 的模型配置、伴侣、记忆和风格摘要；不默认包含原始聊天记录，也不包含 API Key 字段值。
+- v0.2.1 回归通过：本地隐私提示、健康情绪偏好沉淀、敏感信息静默过滤、不健康依赖表达不保存为长期记忆均保持可用。
+- 风格摘要、自定义伴侣、提示词组装、桌面和手机端响应式布局通过测试验收。
+
+### 可后续优化
+
+- 后续可增加 `buildLocalDataExport` 自动化测试，防止导出字段回归。
+- 真实模型质量尚未用真实 DeepSeek/OpenAI Key 做端到端验收；后续只允许用户在网页设置页本地输入 Key，不应在线程、命令、截图或报告中提供完整 Key。
+- 当前会话气泡仍可能显示用户自己输入的敏感字符串；后续可考虑本地展示层脱敏。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`README.md`、`src/App.tsx`、`src/model-provider/openai.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-A/B 验收通过，允许提交与推送。

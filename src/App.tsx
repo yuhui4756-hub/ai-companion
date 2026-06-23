@@ -46,6 +46,7 @@ import {
   loadProviderConfig,
   loadStyleSummaries,
   saveActiveCompanionId,
+  buildLocalDataExport,
   saveCompanions,
   saveMemories,
   saveMessages,
@@ -73,6 +74,32 @@ const importanceOptions: MemoryImportance[] = [1, 2, 3];
 const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
 const memoryVisibleActions = new Set(["create", "merge", "replace"]);
 const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
+const providerPresets = [
+  {
+    id: "deepseek-flash",
+    label: "DeepSeek V4 Flash",
+    providerName: "DeepSeek",
+    baseURL: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    note: "适合先做快速真实模型验收，模型名仍可手动修改。",
+  },
+  {
+    id: "deepseek-pro",
+    label: "DeepSeek V4 Pro",
+    providerName: "DeepSeek",
+    baseURL: "https://api.deepseek.com",
+    model: "deepseek-v4-pro",
+    note: "用于更强回复质量验收，费用和权限以用户账户为准。",
+  },
+  {
+    id: "openai-compatible",
+    label: "OpenAI 兼容",
+    providerName: "OpenAI 兼容接口",
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    note: "通用 OpenAI Chat Completions 兼容格式，可替换为其他服务商。",
+  },
+] as const;
 
 function makeMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -143,6 +170,7 @@ export default function App() {
   const [styleImportText, setStyleImportText] = useState("");
   const [privacyNoticeAck, setPrivacyNoticeAck] = useState(() => initialPrivacyNoticeAck);
   const [isPrivacyNoticeOpen, setIsPrivacyNoticeOpen] = useState(() => !initialPrivacyNoticeAck.acknowledged);
+  const [dataActionMessage, setDataActionMessage] = useState("");
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -173,9 +201,22 @@ export default function App() {
 
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
+    setDataActionMessage("");
     setProviderConfig((current) => ({
       ...current,
       [field]: value,
+    }));
+  }
+
+  function applyProviderPreset(preset: (typeof providerPresets)[number]) {
+    setSettingsSaved(false);
+    setDataActionMessage("已套用预设。预设不会填写 API Key，请确认模型名后保存。");
+    setProviderConfig((current) => ({
+      ...current,
+      providerName: preset.providerName,
+      baseURL: preset.baseURL,
+      model: preset.model,
+      apiKey: current.apiKey,
     }));
   }
 
@@ -299,6 +340,65 @@ export default function App() {
   function clearChat() {
     setMessages([]);
     setError("");
+  }
+
+  function clearLocalApiKey() {
+    if (!window.confirm("清除后需要重新填写 API Key 才能聊天。确定清除本地 API Key 吗？")) return;
+    const nextConfig = { ...providerConfig, apiKey: "" };
+    setProviderConfig(nextConfig);
+    saveProviderConfig(nextConfig);
+    setSettingsSaved(false);
+    setError("");
+    setDataActionMessage("已清除本地 API Key。服务商名称、baseURL 和 model 已保留。");
+  }
+
+  function clearCurrentChatRecords() {
+    if (!window.confirm("确定清空当前聊天记录吗？长期记忆、伴侣配置和风格摘要不会被删除。")) return;
+    setMessages([]);
+    saveMessages([]);
+    setLatestCandidates([]);
+    setError("");
+    setDataActionMessage("已清空当前聊天记录，长期记忆和伴侣配置仍保留。");
+  }
+
+  function clearLongTermMemories() {
+    if (!window.confirm("确定清除全部长期记忆吗？清除后它们不会再影响后续回复。")) return;
+    setMemories([]);
+    saveMemories([]);
+    setLatestCandidates([]);
+    setDataActionMessage("已清除全部长期记忆。聊天记录中的原始消息不会因此删除。");
+  }
+
+  function clearAllStyleSummaries() {
+    if (!window.confirm("确定清除全部风格摘要吗？所有伴侣绑定的风格参考也会解除。")) return;
+    const now = new Date().toISOString();
+    const nextCompanions = companions.map((companion) =>
+      companion.activeStyleSummaryId ? { ...companion, activeStyleSummaryId: undefined, updatedAt: now } : companion,
+    );
+    setStyleSummaries([]);
+    setCompanions(nextCompanions);
+    saveStyleSummaries([]);
+    saveCompanions(nextCompanions);
+    setDataActionMessage("已清除全部风格摘要，并解除伴侣绑定。");
+  }
+
+  function exportLocalData() {
+    const payload = buildLocalDataExport({
+      providerConfig,
+      companions,
+      memories,
+      styleSummaries,
+    });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ai-companion-local-data-v0.3-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setDataActionMessage("已导出本地配置和记忆 JSON。导出文件不包含 API Key，也不包含原始聊天记录。");
   }
 
   function acknowledgePrivacyNotice() {
@@ -460,7 +560,7 @@ export default function App() {
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">v0.2 本地自定义伴侣 Demo</p>
+            <p className="eyebrow">v0.3 本地自定义伴侣 Demo</p>
             <h2>
               {activeView === "chat"
                 ? "陪伴聊天"
@@ -743,6 +843,26 @@ export default function App() {
               )}
             </div>
 
+            <div className="settings-block">
+              <div className="section-title">
+                <KeyRound size={18} />
+                <h3>服务商预设</h3>
+              </div>
+              <p className="muted">
+                预设只填写公开接口信息，不会填写 API Key。DeepSeek 兼容 OpenAI Chat Completions，模型名保留为可编辑字段，方便按官方可用模型调整。
+              </p>
+              <div className="preset-grid">
+                {providerPresets.map((preset) => (
+                  <button className="preset-button" key={preset.id} type="button" onClick={() => applyProviderPreset(preset)}>
+                    <strong>{preset.label}</strong>
+                    <span>{preset.baseURL}</span>
+                    <small>{preset.model}</small>
+                    <em>{preset.note}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <form className="settings-form" onSubmit={handleSaveSettings}>
               <label>
                 服务商名称
@@ -772,6 +892,7 @@ export default function App() {
                 API Key
                 <input
                   type="password"
+                  autoComplete="off"
                   value={providerConfig.apiKey}
                   onChange={(event) => updateProviderConfig("apiKey", event.target.value)}
                   placeholder="只保存在本机浏览器 localStorage"
@@ -784,6 +905,12 @@ export default function App() {
                   导入聊天记录 P0 仅做本地摘要表单，不会默认发送给第三方模型。
                 </p>
               </div>
+              <div className="warning-box">
+                <p>
+                  真实模型验收时，请只在这个网页的设置页输入自己的 Key；测试记录、截图说明和交接报告都不要记录完整 Key。
+                  页面状态只显示脱敏 Key，导出文件也会移除 Key。
+                </p>
+              </div>
               <button className="ghost-button" type="button" onClick={openPrivacyNotice}>
                 <ShieldCheck size={17} />
                 查看本地隐私说明
@@ -793,6 +920,71 @@ export default function App() {
                 保存设置
               </button>
             </form>
+
+            <div className="settings-block data-management">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Local data</p>
+                  <h3>本地数据管理</h3>
+                </div>
+              </div>
+              <p className="muted">
+                这些操作只影响当前浏览器 localStorage。导出的 JSON 默认包含伴侣配置、长期记忆、风格摘要和去除 Key 的服务商配置，不包含原始聊天记录。
+              </p>
+              <div className="data-action-list">
+                <div className="data-action">
+                  <div>
+                    <strong>清除 API Key</strong>
+                    <span>只清空本地 Key，保留服务商名称、baseURL 和 model。</span>
+                  </div>
+                  <button className="icon-button danger" type="button" onClick={clearLocalApiKey}>
+                    <KeyRound size={16} />
+                    清除
+                  </button>
+                </div>
+                <div className="data-action">
+                  <div>
+                    <strong>清除当前聊天</strong>
+                    <span>不会删除长期记忆、伴侣配置或风格摘要。</span>
+                  </div>
+                  <button className="icon-button danger" type="button" onClick={clearCurrentChatRecords}>
+                    <MessageCircle size={16} />
+                    清空
+                  </button>
+                </div>
+                <div className="data-action">
+                  <div>
+                    <strong>清除长期记忆</strong>
+                    <span>清除后记忆不会再进入后续提示词注入。</span>
+                  </div>
+                  <button className="icon-button danger" type="button" onClick={clearLongTermMemories}>
+                    <BookOpen size={16} />
+                    清除
+                  </button>
+                </div>
+                <div className="data-action">
+                  <div>
+                    <strong>清除风格摘要</strong>
+                    <span>同时解除所有伴侣绑定的风格参考。</span>
+                  </div>
+                  <button className="icon-button danger" type="button" onClick={clearAllStyleSummaries}>
+                    <Sparkles size={16} />
+                    清除
+                  </button>
+                </div>
+                <div className="data-action">
+                  <div>
+                    <strong>导出配置/记忆 JSON</strong>
+                    <span>请妥善保存导出文件，不要发给不信任的人。</span>
+                  </div>
+                  <button className="ghost-button" type="button" onClick={exportLocalData}>
+                    <Save size={16} />
+                    导出
+                  </button>
+                </div>
+              </div>
+              {dataActionMessage && <p className="inline-status">{dataActionMessage}</p>}
+            </div>
           </section>
         )}
 

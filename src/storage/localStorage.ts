@@ -3,10 +3,12 @@ import type {
   ChatMessage,
   CompanionProfile,
   LegacyCompanionType,
+  LocalDataExport,
   MemoryCategory,
   ModelProviderConfig,
   PrivacyNoticeAck,
   StyleSummary,
+  SyncPolicy,
   UserMemory,
 } from "../types";
 
@@ -159,3 +161,74 @@ export function loadPrivacyNoticeAck(): PrivacyNoticeAck {
 export function savePrivacyNoticeAck(value: PrivacyNoticeAck): void {
   writeJSON(STORAGE_KEYS.privacyNoticeAck, value);
 }
+
+export function buildLocalDataExport(params: {
+  providerConfig: ModelProviderConfig;
+  companions: CompanionProfile[];
+  memories: UserMemory[];
+  styleSummaries: StyleSummary[];
+}): LocalDataExport {
+  const { apiKey: _apiKey, ...providerConfigWithoutApiKey } = params.providerConfig;
+  return {
+    version: "v0.3",
+    exportedAt: nowISO(),
+    providerConfigWithoutApiKey: {
+      ...providerConfigWithoutApiKey,
+      apiKeyRemoved: true,
+    },
+    companions: params.companions,
+    memories: params.memories,
+    styleSummaries: params.styleSummaries,
+  };
+}
+
+export const localSyncPolicies: SyncPolicy[] = [
+  {
+    category: "apiKey",
+    defaultCapability: "local_only",
+    canSync: false,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "BYOK API Key 默认只保存在当前浏览器，本项目不代管商业 Key。",
+  },
+  {
+    category: "chatSessions",
+    defaultCapability: "local_only",
+    canSync: false,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "原始聊天记录默认不同步，P0 导出也不包含原始聊天。",
+  },
+  {
+    category: "memories",
+    defaultCapability: "manual_export",
+    canSync: true,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "长期记忆只允许用户主动导出或未来明确授权同步，且需要可查看、可撤回、可删除。",
+  },
+  {
+    category: "styleSummaries",
+    defaultCapability: "manual_export",
+    canSync: true,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "风格摘要可手动导出；原始导入文本不应默认上传或同步。",
+  },
+  {
+    category: "companions",
+    defaultCapability: "manual_export",
+    canSync: true,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "伴侣配置可手动导出，未来同步必须由用户主动开启。",
+  },
+  {
+    category: "privacyNotice",
+    defaultCapability: "local_only",
+    canSync: false,
+    requiresExplicitConsent: false,
+    mustEncryptAtRest: false,
+    notes: "隐私提示确认状态仅用于当前浏览器体验。",
+  },
+];
