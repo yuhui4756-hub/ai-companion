@@ -13,35 +13,62 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Sparkles,
   Trash2,
+  UserRoundCog,
 } from "lucide-react";
-import { companionProfiles, getCompanionProfile } from "./companion/profiles";
+import {
+  companionTraits,
+  defaultCompanions,
+  getCompanionProfile,
+  getTraitConflictLabels,
+  getTraitsByIds,
+  relationshipLabels,
+} from "./companion/profiles";
 import { sendCompanionMessage } from "./chat-engine/chat";
-import { createMemory, memoryCategoryLabels, selectRelevantMemories, suggestMemoriesFromUserInput } from "./memory/memory";
+import {
+  applyMemoryCandidates,
+  createMemory,
+  generateMemoryCandidates,
+  isMemoryInjectable,
+  memoryCategoryLabels,
+  memoryScopeLabels,
+  selectRelevantMemories,
+} from "./memory/memory";
 import { ModelProviderError } from "./model-provider/openai";
 import {
   defaultProviderConfig,
-  loadCompanionType,
+  loadActiveCompanionId,
+  loadCompanions,
   loadMemories,
   loadMessages,
   loadProviderConfig,
-  saveCompanionType,
+  loadStyleSummaries,
+  saveActiveCompanionId,
+  saveCompanions,
   saveMemories,
   saveMessages,
   saveProviderConfig,
+  saveStyleSummaries,
 } from "./storage/localStorage";
+import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
 import type {
   AppView,
   ChatMessage,
-  CompanionType,
+  CompanionProfile,
+  MemoryCandidate,
   MemoryCategory,
   MemoryImportance,
+  MemoryScope,
   ModelProviderConfig,
+  RelationshipType,
+  StyleSummary,
   UserMemory,
 } from "./types";
 
 const memoryCategories = Object.entries(memoryCategoryLabels) as Array<[MemoryCategory, string]>;
 const importanceOptions: MemoryImportance[] = [1, 2, 3];
+const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
 
 function makeMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -68,31 +95,74 @@ function maskKey(apiKey: string): string {
   return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
 }
 
+function newCompanion(): CompanionProfile {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    relationshipType: "friend",
+    traitIds: ["tone-warm", "emotion-hold", "solve-listen", "boundary-independent"],
+    customPersonalityText: "",
+    intimacyBoundary: "尊重边界，不制造依赖。",
+    responsePace: "跟随用户节奏。",
+    problemSolvingStyle: "先接住情绪，再给可执行建议。",
+    boundaryNotes: "不冒充真实个人或专业人士。",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function companionDisplayName(companion: CompanionProfile): string {
+  return companion.name.trim() || "未命名伴侣";
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
-  const [companionType, setCompanionType] = useState<CompanionType>(() => loadCompanionType());
+  const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
+  const [activeCompanionId, setActiveCompanionId] = useState<string>(() => loadActiveCompanionId());
   const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => loadProviderConfig());
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const [memories, setMemories] = useState<UserMemory[]>(() => loadMemories());
+  const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => loadStyleSummaries());
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
+    scope: "global" as MemoryScope,
     category: "preference" as MemoryCategory,
     content: "",
     importance: 2 as MemoryImportance,
   });
+  const [memoryFilter, setMemoryFilter] = useState<MemoryScope | "all">("all");
+  const [latestCandidates, setLatestCandidates] = useState<MemoryCandidate[]>([]);
+  const [styleImportText, setStyleImportText] = useState("");
 
-  const companion = useMemo(() => getCompanionProfile(companionType), [companionType]);
-  const relevantPreview = useMemo(
-    () => selectRelevantMemories(memories, input || messages[messages.length - 1]?.content || ""),
-    [input, memories, messages],
+  const activeCompanion = useMemo(
+    () => getCompanionProfile(activeCompanionId, companions),
+    [activeCompanionId, companions],
   );
+  const activeStyleSummary = useMemo(
+    () => getBoundStyleSummary(styleSummaries, activeCompanion.id, activeCompanion.activeStyleSummaryId),
+    [activeCompanion, styleSummaries],
+  );
+  const activeTraits = useMemo(() => getTraitsByIds(activeCompanion.traitIds), [activeCompanion.traitIds]);
+  const traitConflicts = useMemo(() => getTraitConflictLabels(activeCompanion.traitIds), [activeCompanion.traitIds]);
+  const relevantPreview = useMemo(
+    () => selectRelevantMemories(memories, input || messages[messages.length - 1]?.content || "", activeCompanion.id),
+    [input, memories, messages, activeCompanion.id],
+  );
+  const visibleMemories = memories.filter((memory) => {
+    if (memoryFilter !== "all" && memory.scope !== memoryFilter) return false;
+    if (memory.scope === "companion" && memory.companionId !== activeCompanion.id) return false;
+    return memory.status !== "deleted";
+  });
 
-  useEffect(() => saveCompanionType(companionType), [companionType]);
+  useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
+  useEffect(() => saveCompanions(companions), [companions]);
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveMemories(memories), [memories]);
+  useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
 
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
@@ -109,6 +179,29 @@ export default function App() {
     setError("");
   }
 
+  function updateCompanion(id: string, patch: Partial<CompanionProfile>) {
+    setCompanions((current) =>
+      current.map((companion) =>
+        companion.id === id ? { ...companion, ...patch, updatedAt: new Date().toISOString() } : companion,
+      ),
+    );
+  }
+
+  function addCompanion() {
+    const companion = newCompanion();
+    setCompanions((current) => [companion, ...current]);
+    setActiveCompanionId(companion.id);
+    setActiveView("companion");
+  }
+
+  function toggleTrait(traitId: string) {
+    const exists = activeCompanion.traitIds.includes(traitId);
+    const nextTraitIds = exists
+      ? activeCompanion.traitIds.filter((id) => id !== traitId)
+      : [...activeCompanion.traitIds, traitId].slice(0, 6);
+    updateCompanion(activeCompanion.id, { traitIds: nextTraitIds });
+  }
+
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const userInput = input.trim();
@@ -116,19 +209,13 @@ export default function App() {
 
     const userMessage = makeMessage("user", userInput);
     const nextMessages = [...messages, userMessage];
-    const memorySuggestions = suggestMemoriesFromUserInput(userInput, memories);
-    const nextMemories =
-      memorySuggestions.length > 0
-        ? [
-            ...memorySuggestions.map((suggestion) =>
-              createMemory(suggestion.category, suggestion.content, suggestion.importance),
-            ),
-            ...memories,
-          ]
-        : memories;
+    const candidates = generateMemoryCandidates(userInput, memories, activeCompanion.id);
+    const actionableCandidates = candidates.filter((candidate) => candidate.suggestedAction !== "skip");
+    const nextMemories = applyMemoryCandidates(actionableCandidates, memories);
 
     setMessages(nextMessages);
-    if (memorySuggestions.length > 0) {
+    setLatestCandidates(candidates);
+    if (nextMemories !== memories) {
       setMemories(nextMemories);
     }
     setInput("");
@@ -138,7 +225,8 @@ export default function App() {
     try {
       const reply = await sendCompanionMessage({
         config: providerConfig,
-        companion,
+        companion: activeCompanion,
+        styleSummary: activeStyleSummary,
         memories: nextMemories,
         history: messages,
         userInput,
@@ -156,23 +244,36 @@ export default function App() {
     if (!memoryDraft.content.trim()) return;
 
     setMemories((current) => [
-      createMemory(memoryDraft.category, memoryDraft.content, memoryDraft.importance),
+      createMemory({
+        scope: memoryDraft.scope,
+        companionId: memoryDraft.scope === "companion" ? activeCompanion.id : undefined,
+        category: memoryDraft.category,
+        content: memoryDraft.content,
+        importance: memoryDraft.importance,
+        source: "manual",
+        confidence: 1,
+      }),
       ...current,
     ]);
     setMemoryDraft({
-      category: memoryDraft.category,
+      ...memoryDraft,
       content: "",
-      importance: memoryDraft.importance,
     });
   }
 
-  function updateMemory(id: string, patch: Partial<Pick<UserMemory, "category" | "content" | "importance">>) {
+  function updateMemory(id: string, patch: Partial<Pick<UserMemory, "scope" | "category" | "content" | "importance" | "status">>) {
     setMemories((current) =>
       current.map((memory) =>
         memory.id === id
           ? {
               ...memory,
               ...patch,
+              companionId:
+                patch.scope === "global"
+                  ? undefined
+                  : patch.scope === "companion"
+                    ? activeCompanion.id
+                    : memory.companionId,
               updatedAt: new Date().toISOString(),
             }
           : memory,
@@ -181,12 +282,71 @@ export default function App() {
   }
 
   function deleteMemory(id: string) {
-    setMemories((current) => current.filter((memory) => memory.id !== id));
+    setMemories((current) =>
+      current.map((memory) =>
+        memory.id === id ? { ...memory, status: "deleted", updatedAt: new Date().toISOString() } : memory,
+      ),
+    );
   }
 
   function clearChat() {
     setMessages([]);
     setError("");
+  }
+
+  function createStyleFromImport() {
+    const summary = buildStyleSummaryFromInput(styleImportText);
+    setStyleSummaries((current) => [summary, ...current]);
+    setStyleImportText("");
+  }
+
+  function updateStyleSummary(id: string, patch: Partial<StyleSummary>) {
+    setStyleSummaries((current) =>
+      current.map((summary) =>
+        summary.id === id ? { ...summary, ...patch, updatedAt: new Date().toISOString() } : summary,
+      ),
+    );
+  }
+
+  function bindStyleSummary(summaryId: string) {
+    setStyleSummaries((current) =>
+      current.map((summary) =>
+        summary.id === summaryId
+          ? {
+              ...summary,
+              boundCompanionIds: Array.from(new Set([...summary.boundCompanionIds, activeCompanion.id])),
+              updatedAt: new Date().toISOString(),
+            }
+          : summary,
+      ),
+    );
+    updateCompanion(activeCompanion.id, { activeStyleSummaryId: summaryId });
+  }
+
+  function unbindStyleSummary(summaryId: string) {
+    setStyleSummaries((current) =>
+      current.map((summary) =>
+        summary.id === summaryId
+          ? {
+              ...summary,
+              boundCompanionIds: summary.boundCompanionIds.filter((id) => id !== activeCompanion.id),
+              updatedAt: new Date().toISOString(),
+            }
+          : summary,
+      ),
+    );
+    if (activeCompanion.activeStyleSummaryId === summaryId) {
+      updateCompanion(activeCompanion.id, { activeStyleSummaryId: undefined });
+    }
+  }
+
+  function deleteStyleSummary(summaryId: string) {
+    setStyleSummaries((current) => current.filter((summary) => summary.id !== summaryId));
+    setCompanions((current) =>
+      current.map((companion) =>
+        companion.activeStyleSummaryId === summaryId ? { ...companion, activeStyleSummaryId: undefined } : companion,
+      ),
+    );
   }
 
   const isConfigured =
@@ -212,20 +372,32 @@ export default function App() {
             <MessageCircle size={18} />
             聊天
           </button>
-          <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
-            <Settings size={18} />
-            设置
+          <button className={activeView === "companion" ? "active" : ""} onClick={() => setActiveView("companion")}>
+            <UserRoundCog size={18} />
+            伴侣
           </button>
           <button className={activeView === "memory" ? "active" : ""} onClick={() => setActiveView("memory")}>
             <BookOpen size={18} />
             记忆
+          </button>
+          <button className={activeView === "style" ? "active" : ""} onClick={() => setActiveView("style")}>
+            <Sparkles size={18} />
+            风格
+          </button>
+          <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
+            <Settings size={18} />
+            设置
           </button>
         </nav>
 
         <section className="status-panel" aria-label="当前状态">
           <div className="status-row">
             <span>当前伴侣</span>
-            <strong>{companion.title}</strong>
+            <strong>{companionDisplayName(activeCompanion)}</strong>
+          </div>
+          <div className="status-row">
+            <span>关系</span>
+            <strong>{relationshipLabels[activeCompanion.relationshipType]}</strong>
           </div>
           <div className="status-row">
             <span>模型</span>
@@ -245,8 +417,18 @@ export default function App() {
       <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">中文单页 Demo</p>
-            <h2>{activeView === "chat" ? "陪伴聊天" : activeView === "settings" ? "BYOK 设置" : "长期记忆"}</h2>
+            <p className="eyebrow">v0.2 本地自定义伴侣 Demo</p>
+            <h2>
+              {activeView === "chat"
+                ? "陪伴聊天"
+                : activeView === "settings"
+                  ? "BYOK 设置"
+                  : activeView === "memory"
+                    ? "长期记忆"
+                    : activeView === "style"
+                      ? "风格参考"
+                      : "自定义伴侣"}
+            </h2>
           </div>
           <button className="ghost-button" onClick={() => setActiveView("settings")}>
             <KeyRound size={17} />
@@ -259,25 +441,29 @@ export default function App() {
             <section className="workspace-panel companion-panel">
               <div className="section-title">
                 <Bot size={18} />
-                <h3>选择伴侣</h3>
+                <h3>当前伴侣</h3>
               </div>
               <div className="companion-list">
-                {companionProfiles.map((profile) => (
+                {companions.map((profile) => (
                   <button
                     key={profile.id}
-                    className={profile.id === companionType ? "companion-card selected" : "companion-card"}
-                    onClick={() => setCompanionType(profile.id)}
+                    className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
+                    onClick={() => setActiveCompanionId(profile.id)}
                   >
-                    <span>{profile.title}</span>
-                    <strong>{profile.name}</strong>
-                    <small>{profile.tone}</small>
+                    <span>{relationshipLabels[profile.relationshipType]}</span>
+                    <strong>{companionDisplayName(profile)}</strong>
+                    <small>{getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") || "未选择特质"}</small>
                   </button>
                 ))}
               </div>
+              <button className="ghost-button full-width" onClick={addCompanion}>
+                <Plus size={16} />
+                新建伴侣
+              </button>
               <div className="profile-detail">
-                <h3>{companion.name}</h3>
-                <p>{companion.emotionalStyle}</p>
-                <p>{companion.problemSolvingStyle}</p>
+                <h3>{companionDisplayName(activeCompanion)}</h3>
+                <p>{activeCompanion.customPersonalityText || "还没有自定义性格补充。"}</p>
+                <p>{activeCompanion.boundaryNotes || "默认遵守安全边界。"}</p>
               </div>
             </section>
 
@@ -286,24 +472,38 @@ export default function App() {
                 {messages.length === 0 ? (
                   <div className="empty-state">
                     <Brain size={30} />
-                    <h3>先选一个伴侣，然后开始聊天</h3>
-                    <p>系统会把当前伴侣人设和相关长期记忆注入提示词。API Key 只保存在你的浏览器本机。</p>
+                    <h3>创建或选择一个伴侣，然后开始聊天</h3>
+                    <p>系统会注入当前伴侣设定、风格参考、全局记忆和当前伴侣专属记忆。</p>
                   </div>
                 ) : (
                   messages.map((message) => (
                     <article key={message.id} className={`message ${message.role}`}>
-                      <span>{message.role === "user" ? "你" : companion.name}</span>
+                      <span>{message.role === "user" ? "你" : companionDisplayName(activeCompanion)}</span>
                       <p>{message.content}</p>
                     </article>
                   ))
                 )}
                 {isSending && (
                   <article className="message assistant">
-                    <span>{companion.name}</span>
+                    <span>{companionDisplayName(activeCompanion)}</span>
                     <p>正在认真想怎么回你...</p>
                   </article>
                 )}
               </div>
+
+              {latestCandidates.length > 0 && (
+                <div className="candidate-strip">
+                  {latestCandidates.map((candidate) => (
+                    <span key={candidate.id} className={`candidate-pill ${candidate.suggestedAction}`}>
+                      {candidate.suggestedAction === "skip"
+                        ? "已跳过敏感信息"
+                        : candidate.suggestedAction === "needs_review"
+                          ? `边界提醒：${candidate.content}`
+                          : `${memoryScopeLabels[candidate.suggestedScope]}候选：${candidate.content}`}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {error && <div className="error-banner">{error}</div>}
 
@@ -311,7 +511,7 @@ export default function App() {
                 <textarea
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder="把想说的话写在这里..."
+                  placeholder="例如：以后别催我，我一被催就烦。或：你以后叫我阿眠吧，只有你这么叫。"
                   rows={3}
                 />
                 <div className="composer-actions">
@@ -332,16 +532,158 @@ export default function App() {
                 <h3>本轮相关记忆</h3>
               </div>
               {relevantPreview.length === 0 ? (
-                <p className="muted">还没有可注入的长期记忆。可以去“记忆”手动添加。</p>
+                <p className="muted">还没有可注入的 active 记忆。可以聊天自动沉淀，或去“记忆”手动添加。</p>
               ) : (
                 <ul className="memory-mini-list">
                   {relevantPreview.map((memory) => (
                     <li key={memory.id}>
-                      <strong>{memoryCategoryLabels[memory.category]}</strong>
+                      <strong>
+                        {memoryScopeLabels[memory.scope]} · {memoryCategoryLabels[memory.category]}
+                      </strong>
                       <span>{memory.content}</span>
                     </li>
                   ))}
                 </ul>
+              )}
+              <div className="style-mini">
+                <strong>风格参考</strong>
+                <span>{activeStyleSummary ? activeStyleSummary.name : "未绑定"}</span>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeView === "companion" && (
+          <div className="content-grid companion-editor-layout">
+            <section className="workspace-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">{companions.length} 个本地伴侣</p>
+                  <h3>选择或新建</h3>
+                </div>
+                <button className="ghost-button" onClick={addCompanion}>
+                  <Plus size={16} />
+                  新建
+                </button>
+              </div>
+              <div className="companion-list">
+                {companions.map((profile) => (
+                  <button
+                    key={profile.id}
+                    className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
+                    onClick={() => setActiveCompanionId(profile.id)}
+                  >
+                    <span>{relationshipLabels[profile.relationshipType]}</span>
+                    <strong>{companionDisplayName(profile)}</strong>
+                    <small>{profile.customPersonalityText || "未填写自定义性格"}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="workspace-panel editor-panel">
+              <div className="section-title">
+                <UserRoundCog size={18} />
+                <h3>伴侣设定</h3>
+              </div>
+              <div className="settings-form">
+                <label>
+                  伴侣名字
+                  <input
+                    value={activeCompanion.name}
+                    onChange={(event) => updateCompanion(activeCompanion.id, { name: event.target.value })}
+                    placeholder="可留空；提示词会使用“当前伴侣”，不会编造固定名字"
+                  />
+                </label>
+                <label>
+                  关系类型
+                  <select
+                    value={activeCompanion.relationshipType}
+                    onChange={(event) =>
+                      updateCompanion(activeCompanion.id, { relationshipType: event.target.value as RelationshipType })
+                    }
+                  >
+                    {relationshipOptions.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  自定义性格补充
+                  <textarea
+                    value={activeCompanion.customPersonalityText ?? ""}
+                    onChange={(event) =>
+                      updateCompanion(activeCompanion.id, { customPersonalityText: event.target.value })
+                    }
+                    rows={3}
+                    placeholder="例如：说话更像可靠的朋友，少说大道理，多陪我把事情拆开。"
+                  />
+                </label>
+                <label>
+                  亲密边界
+                  <input
+                    value={activeCompanion.intimacyBoundary ?? ""}
+                    onChange={(event) => updateCompanion(activeCompanion.id, { intimacyBoundary: event.target.value })}
+                  />
+                </label>
+                <label>
+                  回应节奏
+                  <input
+                    value={activeCompanion.responsePace ?? ""}
+                    onChange={(event) => updateCompanion(activeCompanion.id, { responsePace: event.target.value })}
+                  />
+                </label>
+                <label>
+                  问题处理方式
+                  <input
+                    value={activeCompanion.problemSolvingStyle ?? ""}
+                    onChange={(event) =>
+                      updateCompanion(activeCompanion.id, { problemSolvingStyle: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  边界备注
+                  <textarea
+                    value={activeCompanion.boundaryNotes ?? ""}
+                    onChange={(event) => updateCompanion(activeCompanion.id, { boundaryNotes: event.target.value })}
+                    rows={2}
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="workspace-panel trait-panel">
+              <div className="section-title">
+                <Sparkles size={18} />
+                <h3>性格/特质组合</h3>
+              </div>
+              <div className="trait-grid">
+                {companionTraits.map((trait) => (
+                  <button
+                    key={trait.id}
+                    className={activeCompanion.traitIds.includes(trait.id) ? "trait-chip selected" : "trait-chip"}
+                    onClick={() => toggleTrait(trait.id)}
+                  >
+                    <strong>{trait.label}</strong>
+                    <span>{trait.promptText}</span>
+                  </button>
+                ))}
+              </div>
+              {traitConflicts.length > 0 && (
+                <div className="warning-box">
+                  {traitConflicts.map((conflict) => (
+                    <p key={conflict}>{conflict}</p>
+                  ))}
+                </div>
+              )}
+              {activeTraits.some((trait) => trait.safetyNotes) && (
+                <div className="privacy-callout">
+                  <ShieldCheck size={18} />
+                  <p>{activeTraits.map((trait) => trait.safetyNotes).filter(Boolean).join(" ")}</p>
+                </div>
               )}
             </section>
           </div>
@@ -399,8 +741,8 @@ export default function App() {
               <div className="privacy-callout">
                 <ShieldCheck size={18} />
                 <p>
-                  第一版不内置、不上传、不代管商业 API Key。浏览器直连你填写的 OpenAI 兼容接口；
-                  如果服务商不允许浏览器跨域请求，可能需要后续加本地代理。
+                  本项目不内置、不上传、不代管商业 API Key。浏览器直连你填写的 OpenAI 兼容接口；
+                  导入聊天记录 P0 仅做本地摘要表单，不会默认发送给第三方模型。
                 </p>
               </div>
               <button className="primary-button" type="submit">
@@ -419,6 +761,18 @@ export default function App() {
                 <h3>新增记忆</h3>
               </div>
               <form className="memory-form" onSubmit={handleAddMemory}>
+                <label>
+                  作用范围
+                  <select
+                    value={memoryDraft.scope}
+                    onChange={(event) =>
+                      setMemoryDraft((current) => ({ ...current, scope: event.target.value as MemoryScope }))
+                    }
+                  >
+                    <option value="global">全局</option>
+                    <option value="companion">当前伴侣专属</option>
+                  </select>
+                </label>
                 <label>
                   分类
                   <select
@@ -465,7 +819,7 @@ export default function App() {
                         content: event.target.value,
                       }))
                     }
-                    placeholder="例如：用户希望被叫作小林；用户不喜欢过度说教。"
+                    placeholder="例如：用户不喜欢被催促，提醒时要温和。"
                     rows={5}
                   />
                 </label>
@@ -479,20 +833,37 @@ export default function App() {
             <section className="workspace-panel memory-list-panel">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">{memories.length} 条本地记忆</p>
+                  <p className="eyebrow">{visibleMemories.length} 条可管理记忆</p>
                   <h3>查看、编辑、删除</h3>
                 </div>
+                <select value={memoryFilter} onChange={(event) => setMemoryFilter(event.target.value as MemoryScope | "all")}>
+                  <option value="all">全部</option>
+                  <option value="global">全局</option>
+                  <option value="companion">当前伴侣专属</option>
+                </select>
               </div>
-              {memories.length === 0 ? (
+              {visibleMemories.length === 0 ? (
                 <div className="empty-state compact">
                   <BookOpen size={26} />
-                  <p>还没有长期记忆。新增后，聊天时会按相关性注入提示词。</p>
+                  <p>还没有符合筛选条件的长期记忆。自动候选会在聊天时出现，手动记忆也可以在这里添加。</p>
                 </div>
               ) : (
                 <div className="memory-list">
-                  {memories.map((memory) => (
-                    <article className="memory-card" key={memory.id}>
+                  {visibleMemories.map((memory) => (
+                    <article className={isMemoryInjectable(memory, activeCompanion.id) ? "memory-card" : "memory-card inactive"} key={memory.id}>
                       <div className="memory-card-row">
+                        <select
+                          value={memory.scope}
+                          onChange={(event) =>
+                            updateMemory(memory.id, {
+                              scope: event.target.value as MemoryScope,
+                            })
+                          }
+                          aria-label="记忆范围"
+                        >
+                          <option value="global">全局</option>
+                          <option value="companion">当前伴侣专属</option>
+                        </select>
                         <select
                           value={memory.category}
                           onChange={(event) =>
@@ -505,21 +876,6 @@ export default function App() {
                           {memoryCategories.map(([value, label]) => (
                             <option key={value} value={value}>
                               {label}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={memory.importance}
-                          onChange={(event) =>
-                            updateMemory(memory.id, {
-                              importance: Number(event.target.value) as MemoryImportance,
-                            })
-                          }
-                          aria-label="重要度"
-                        >
-                          {importanceOptions.map((value) => (
-                            <option key={value} value={value}>
-                              重要度 {value}
                             </option>
                           ))}
                         </select>
@@ -539,10 +895,129 @@ export default function App() {
                       />
                       <div className="memory-meta">
                         <PenLine size={14} />
-                        更新于 {new Date(memory.updatedAt).toLocaleString("zh-CN")}
+                        {memoryScopeLabels[memory.scope]} · {memoryCategoryLabels[memory.category]} · {memory.status} · 置信度{" "}
+                        {memory.confidence.toFixed(2)}
                       </div>
                     </article>
                   ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeView === "style" && (
+          <div className="content-grid style-layout">
+            <section className="workspace-panel">
+              <div className="section-title">
+                <Sparkles size={18} />
+                <h3>导入前提示</h3>
+              </div>
+              <div className="privacy-callout">
+                <ShieldCheck size={18} />
+                <p>
+                  请只导入你有权使用、已获得必要同意，且不会侵犯他人隐私的聊天记录。导入内容将用于生成“风格参考摘要”，帮助你的虚构 AI
+                  伴侣学习语气和互动方式；它不会复刻、复活或冒充任何真实个人。P0 不会把导入内容发送给第三方模型。
+                </p>
+              </div>
+              <label>
+                粘贴少量参考文本
+                <textarea
+                  value={styleImportText}
+                  onChange={(event) => setStyleImportText(event.target.value)}
+                  rows={8}
+                  placeholder="粘贴你有权使用的片段；保存后请编辑摘要字段，而不是保留原文。"
+                />
+              </label>
+              <button className="primary-button" onClick={createStyleFromImport} disabled={!styleImportText.trim()}>
+                <Plus size={17} />
+                生成本地摘要草稿
+              </button>
+            </section>
+
+            <section className="workspace-panel style-list-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">{styleSummaries.length} 份摘要</p>
+                  <h3>编辑、绑定、删除</h3>
+                </div>
+                <button className="ghost-button" onClick={() => setStyleSummaries((current) => [createEmptyStyleSummary(), ...current])}>
+                  <Plus size={16} />
+                  空白摘要
+                </button>
+              </div>
+              {styleSummaries.length === 0 ? (
+                <div className="empty-state compact">
+                  <p>还没有风格摘要。你可以从左侧生成草稿，或新建空白摘要手动填写。</p>
+                </div>
+              ) : (
+                <div className="style-list">
+                  {styleSummaries.map((summary) => {
+                    const isBound = summary.boundCompanionIds.includes(activeCompanion.id);
+                    return (
+                      <article className="style-card" key={summary.id}>
+                        <label>
+                          摘要名称
+                          <input
+                            value={summary.name}
+                            onChange={(event) => updateStyleSummary(summary.id, { name: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          摘要说明
+                          <textarea
+                            value={summary.summaryText}
+                            onChange={(event) => updateStyleSummary(summary.id, { summaryText: event.target.value })}
+                            rows={2}
+                          />
+                        </label>
+                        <div className="style-fields">
+                          <label>
+                            语气
+                            <input value={summary.tone} onChange={(event) => updateStyleSummary(summary.id, { tone: event.target.value })} />
+                          </label>
+                          <label>
+                            节奏
+                            <input value={summary.pace} onChange={(event) => updateStyleSummary(summary.id, { pace: event.target.value })} />
+                          </label>
+                          <label>
+                            称呼
+                            <input
+                              value={summary.addressing}
+                              onChange={(event) => updateStyleSummary(summary.id, { addressing: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            情绪回应
+                            <input
+                              value={summary.emotionResponse}
+                              onChange={(event) => updateStyleSummary(summary.id, { emotionResponse: event.target.value })}
+                            />
+                          </label>
+                        </div>
+                        <label>
+                          互动方式
+                          <textarea
+                            value={summary.interactionPatterns}
+                            onChange={(event) =>
+                              updateStyleSummary(summary.id, { interactionPatterns: event.target.value })
+                            }
+                            rows={2}
+                          />
+                        </label>
+                        <div className="style-actions">
+                          <button className="ghost-button" onClick={() => (isBound ? unbindStyleSummary(summary.id) : bindStyleSummary(summary.id))}>
+                            {isBound ? "解绑当前伴侣" : "绑定当前伴侣"}
+                          </button>
+                          <button className="icon-button danger" onClick={() => deleteStyleSummary(summary.id)}>
+                            <Trash2 size={16} />
+                            删除
+                          </button>
+                        </div>
+                        <p className="muted">只参考表达风格，不代表真实个人身份；禁止模仿真实身份、私人经历、联系方式和现实承诺。</p>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>

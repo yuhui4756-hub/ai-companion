@@ -259,6 +259,16 @@ button:disabled {
   max-width: 760px;
 }
 
+.companion-editor-layout {
+  grid-template-columns: minmax(230px, 300px) minmax(300px, 0.9fr) minmax(320px, 1.1fr);
+  align-items: start;
+}
+
+.style-layout {
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  align-items: start;
+}
+
 .section-title,
 .section-heading {
   display: flex;
@@ -281,12 +291,14 @@ button:disabled {
 .companion-list {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .companion-card {
   display: grid;
   gap: 5px;
   width: 100%;
+  min-width: 0;
   padding: 12px;
   text-align: left;
   border: 1px solid #d7e1e6;
@@ -318,6 +330,13 @@ button:disabled {
 
 .companion-card small {
   color: #607681;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.full-width {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .profile-detail {
@@ -413,6 +432,41 @@ button:disabled {
   line-height: 1.5;
 }
 
+.candidate-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e1e8ec;
+}
+
+.candidate-pill {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid #cfe0e4;
+  border-radius: 8px;
+  background: #f2f8f8;
+  color: #375561;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.candidate-pill.skip {
+  border-color: #efc7c7;
+  background: #fff4f4;
+  color: #8a2b2b;
+}
+
+.candidate-pill.needs_review {
+  border-color: #f2d59b;
+  background: #fff8e8;
+  color: #77531b;
+}
+
 .composer {
   display: grid;
   gap: 10px;
@@ -486,10 +540,92 @@ select:focus {
   line-height: 1.45;
 }
 
+.style-mini {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid #d7e1e6;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.style-mini strong {
+  color: #36535f;
+  font-size: 13px;
+}
+
+.style-mini span {
+  color: #4d626c;
+  overflow-wrap: anywhere;
+}
+
 .settings-form,
 .memory-form {
   display: grid;
   gap: 14px;
+}
+
+.editor-panel textarea {
+  min-height: 76px;
+}
+
+.trait-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.trait-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.trait-chip {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-height: 118px;
+  padding: 12px;
+  text-align: left;
+  color: #304852;
+  border: 1px solid #d7e1e6;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.trait-chip:hover,
+.trait-chip.selected {
+  border-color: #1f6f78;
+  background: #edf8f8;
+}
+
+.trait-chip strong {
+  min-width: 0;
+  font-size: 14px;
+}
+
+.trait-chip span {
+  min-width: 0;
+  color: #5d727c;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.warning-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  color: #77531b;
+  border: 1px solid #f2d59b;
+  border-radius: 8px;
+  background: #fff8e8;
+}
+
+.warning-box p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 label {
@@ -539,6 +675,11 @@ label {
   background: #fbfcfd;
 }
 
+.memory-card.inactive {
+  opacity: 0.74;
+  background: #f4f6f7;
+}
+
 .memory-card-row {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(110px, 140px) minmax(74px, 86px);
@@ -565,9 +706,46 @@ label {
 .memory-meta {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
   color: #6d7d86;
   font-size: 12px;
+}
+
+.style-list-panel {
+  min-height: 420px;
+}
+
+.style-list {
+  display: grid;
+  gap: 12px;
+}
+
+.style-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.style-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.style-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.style-actions .ghost-button,
+.style-actions .icon-button {
+  width: auto;
 }
 
 .muted {
@@ -592,6 +770,14 @@ label {
   }
 
   .memory-preview {
+    grid-column: 1 / -1;
+  }
+
+  .companion-editor-layout {
+    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  }
+
+  .trait-panel {
     grid-column: 1 / -1;
   }
 }
@@ -638,7 +824,9 @@ label {
   }
 
   .chat-layout,
-  .memory-layout {
+  .memory-layout,
+  .companion-editor-layout,
+  .style-layout {
     grid-template-columns: 1fr;
   }
 
@@ -699,6 +887,21 @@ label {
   }
 
   .icon-button {
+    width: 100%;
+  }
+
+  .style-fields,
+  .trait-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .style-actions,
+  .composer-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .style-actions .ghost-button,
+  .style-actions .icon-button {
     width: 100%;
   }
 }
