@@ -319,3 +319,39 @@
 - 工作区修改文件与测试交接一致：`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-D 验收通过，允许提交与推送。
+
+## 2026-06-24 v0.3-E 轻恋爱伴侣真实聊天专项返工复验通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-E 返工后复验。
+- 结论：通过。此前 P0 “排他依赖表达被保存为 active 长期记忆”已修复。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- 默认轻恋爱伴侣 `予安` 下，`我只想要你，别人都不要。` 不再新增长期记忆，页面无 skip、needs_review、风控或已跳过等内部痕迹。
+- 扩展排他依赖样例均不保存长期记忆：`我只想要你，其他人都不要。`、`只有你就够了，别人都不要。`、`我只想要你，朋友都不想理。`
+- 健康偏好仍可沉淀为 active 记忆，例如焦虑时希望先被陪伴、缓一缓、不要立刻讲大道理。
+- 敏感信息静默过滤、普通临时情绪不沉淀保持可用。
+- 默认、自定义、问卷来源轻恋爱伴侣均进入 `【轻恋爱陪伴专项】` prompt。
+- 本地续聊保持本地插入，不请求模型，不是真实推送。
+- 移动端 390x844 无横向溢出。
+
+### 可后续优化
+
+- 后续可将不健康依赖/排他绑定识别从长正则抽成集中分类函数，便于覆盖更多自然语言变体和单元测试。
+- 轻恋爱本地续聊后续可增加更细冷却时间和最近消息语义判断。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/companion/onboarding.ts`、`src/companion/profiles.ts`、`src/memory/memory.ts`、`src/styles.css`、`src/companion/romance.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-E 返工复验通过，允许提交与推送。

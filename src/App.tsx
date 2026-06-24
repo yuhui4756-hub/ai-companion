@@ -35,6 +35,7 @@ import {
   proactiveOptions,
   toneOptions,
 } from "./companion/onboarding";
+import { buildRomanceReconnectMessage, isLightRomanceCompanion } from "./companion/romance";
 import { sendCompanionMessage } from "./chat-engine/chat";
 import {
   applyMemoryCandidates,
@@ -172,6 +173,13 @@ function nextOnboardingState(status: "skipped" | "completed") {
   };
 }
 
+function splitMessageParts(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
@@ -206,6 +214,7 @@ export default function App() {
     proactiveLevel: "medium",
     companionName: "",
   });
+  const [isRomanceReconnectSuppressed, setIsRomanceReconnectSuppressed] = useState(false);
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -244,6 +253,16 @@ export default function App() {
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveMemories(memories), [memories]);
   useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
+  useEffect(() => setIsRomanceReconnectSuppressed(false), [activeCompanion.id]);
+  useEffect(() => {
+    if (activeView !== "chat" || shouldShowOnboarding || isSending || isRomanceReconnectSuppressed) return;
+    const reconnectMessage = buildRomanceReconnectMessage(activeCompanion, messages);
+    if (!reconnectMessage) return;
+    setMessages((current) => {
+      if (current !== messages) return current;
+      return [...current, makeMessage("assistant", reconnectMessage)];
+    });
+  }, [activeView, activeCompanion, messages, shouldShowOnboarding, isSending, isRomanceReconnectSuppressed]);
 
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
@@ -355,6 +374,7 @@ export default function App() {
     }
     setInput("");
     setError("");
+    setIsRomanceReconnectSuppressed(false);
     setIsSending(true);
 
     try {
@@ -427,6 +447,7 @@ export default function App() {
   function clearChat() {
     setMessages([]);
     setError("");
+    setIsRomanceReconnectSuppressed(true);
   }
 
   function clearLocalApiKey() {
@@ -445,6 +466,7 @@ export default function App() {
     saveMessages([]);
     setLatestCandidates([]);
     setError("");
+    setIsRomanceReconnectSuppressed(true);
     setDataActionMessage("已清空当前聊天记录，长期记忆和伴侣配置仍保留。");
   }
 
@@ -860,9 +882,18 @@ export default function App() {
                   </div>
                 ) : (
                   messages.map((message) => (
-                    <article key={message.id} className={`message ${message.role}`}>
+                    <article
+                      key={message.id}
+                      className={`message ${message.role}${
+                        message.role === "assistant" && isLightRomanceCompanion(activeCompanion) ? " romance" : ""
+                      }`}
+                    >
                       <span>{message.role === "user" ? "你" : companionDisplayName(activeCompanion)}</span>
-                      <p>{message.content}</p>
+                      <div className="message-content">
+                        {splitMessageParts(message.content).map((part, index) => (
+                          <p key={`${message.id}-${index}`}>{part}</p>
+                        ))}
+                      </div>
                     </article>
                   ))
                 )}

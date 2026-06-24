@@ -215,23 +215,40 @@ export function createCompanionFromOnboarding(answer: OnboardingAnswer): Compani
   const customToneText =
     tone === "custom" ? `用户希望的说话感觉：${answer.toneCustomText?.trim() || "像熟人一样自然，少讲大道理。"}` : "";
 
+  const shouldCreateLightRomance =
+    direction === "encourage" && proactiveLevel === "high" && tone !== "quiet";
+  const relationshipType = shouldCreateLightRomance ? "light_romance" : directionPreset.relationshipType;
+  const romanceTraits = shouldCreateLightRomance ? ["boundary-gentle-romance", "initiative-care"] : [];
+
   const companion: CompanionProfile = {
     id: `companion-onboarding-${crypto.randomUUID()}`,
     name: answer.companionName?.trim() ?? "",
-    relationshipType: directionPreset.relationshipType,
-    traitIds: uniqueTraits([...directionPreset.traitIds, ...tonePreset.traitIds, ...proactiveTraits[proactiveLevel]]),
+    relationshipType,
+    traitIds: uniqueTraits([
+      ...directionPreset.traitIds,
+      ...tonePreset.traitIds,
+      ...proactiveTraits[proactiveLevel],
+      ...romanceTraits,
+    ]),
     customPersonalityText: mergeText([
       directionPreset.customPersonalityText,
       tonePreset.personalityText,
+      shouldCreateLightRomance ? "轻恋爱感更明显：亲近、会撒娇、会心疼用户，但不油腻、不强绑定。" : "",
       customDirectionText,
       customToneText,
     ]),
-    intimacyBoundary: directionPreset.intimacyBoundary,
-    responsePace: tonePreset.responsePace,
-    problemSolvingStyle: directionPreset.problemSolvingStyle,
+    intimacyBoundary: shouldCreateLightRomance
+      ? "轻亲密，可表达在意和撒娇，但不制造依赖。"
+      : directionPreset.intimacyBoundary,
+    responsePace: shouldCreateLightRomance ? `${tonePreset.responsePace} 短句、多段，不要每轮都问问题。` : tonePreset.responsePace,
+    problemSolvingStyle: shouldCreateLightRomance
+      ? "先哄住和接住，用户明确求助时只陪着拆最小一步。"
+      : directionPreset.problemSolvingStyle,
     boundaryNotes:
       directionPreset.boundaryNotes ??
-      "不冒充现实中特定真人，不伪造线下行为、真实经历或现实承诺；保持陪伴感，但不替代现实关系和用户自己的判断。",
+      (shouldCreateLightRomance
+        ? "可亲近、撒娇、调侃、轻微吃醋；不成人化、不强控制、不诱导现实依赖，不伪造线下行为或现实承诺。"
+        : "不冒充现实中特定真人，不伪造线下行为、真实经历或现实承诺；保持陪伴感，但不替代现实关系和用户自己的判断。"),
     proactiveLevel,
     source: "onboarding",
     createdAt: now,
