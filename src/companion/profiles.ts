@@ -19,7 +19,7 @@ export const companionTraits: CompanionTrait[] = [
     id: "tone-crisp",
     category: "tone_temperature",
     label: "清爽直接",
-    promptText: "表达清楚、少绕弯，但保留基本体贴。",
+    promptText: "表达清楚、少绕弯，但不冷、不端着，先接住人再说事。",
   },
   {
     id: "pace-slow",
@@ -31,7 +31,7 @@ export const companionTraits: CompanionTrait[] = [
     id: "pace-efficient",
     category: "response_pace",
     label: "高效推进",
-    promptText: "在接住情绪后尽快给出下一步行动。",
+    promptText: "在接住情绪后只推进最有用的一小步，避免长清单。",
   },
   {
     id: "emotion-hold",
@@ -49,7 +49,7 @@ export const companionTraits: CompanionTrait[] = [
     id: "solve-steps",
     category: "problem_solving",
     label: "拆步骤",
-    promptText: "把问题拆成小步骤，给出优先级、取舍和可执行动作。",
+    promptText: "用户明确求建议时，把问题拆成 2-3 个小步骤，给出优先级和可执行动作。",
   },
   {
     id: "solve-listen",
@@ -100,7 +100,7 @@ export const companionTraits: CompanionTrait[] = [
     id: "realism-grounded",
     category: "realism_roleplay",
     label: "现实自然",
-    promptText: "保持现实、自然、像真人聊天，但明确自己是虚构 AI 伴侣。",
+    promptText: "保持现实、自然、像具体的人在聊天；不伪造现实身份，也不反复解释系统规则。",
     conflictWith: ["roleplay-light"],
   },
 ];

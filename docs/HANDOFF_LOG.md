@@ -285,3 +285,37 @@
 - 工作区修改文件与测试交接一致：`README.md`、`src/App.tsx`、`src/companion/profiles.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`、`src/companion/onboarding.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-C 返工复验通过，允许提交与推送。
+
+## 2026-06-24 v0.3-D 降 AI 味与伴侣感专项验收通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-D 中间验收。
+- 结论：通过。低 AI 味 prompt 与伴侣风格专项优化已进入真实聊天请求链路。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- secret 扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- `buildSystemPrompt()` 已接入 `【低 AI 味回应规则】`、`【伴侣说话方式】`、`【场景回应优先级】`、关系风格、主动程度和长期记忆自然注入规则。
+- 长期记忆注入段落只包含记忆内容，不再暴露 scope、category、confidence 等内部元数据。
+- 伴侣特质文案已调整，避免冷报告、长清单、频繁解释系统规则。
+- 可控 OpenAI 兼容 mock 端到端验证通过，页面回复更短、更具体，先承接情绪，减少客服腔、助手腔和报告腔。
+- 关系差异验证通过：朋友陪伴、理性支持、轻恋爱陪伴、角色陪伴、自定义伴侣均能进入 system prompt 并影响回复风格。
+- v0.3-A/B/C 关键回归通过：模型预设、本地数据管理、导出隐私、首次轻问卷、移动端布局、敏感/不健康依赖不沉淀均保持可用。
+
+### 可后续优化
+
+- 后续可让用户只在网页设置页本地输入真实 DeepSeek/OpenAI Key，做一次真实模型主观质量验收；测试报告不得记录完整 Key。
+- 后续可补 prompt 结构单测，覆盖低 AI 味规则、伴侣说话方式、场景回应优先级和长期记忆纯内容注入。
+- 后续可增加小样本人工评分表：客服腔、自称 AI 频率、情绪承接、建议长度、关系差异、边界温度。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-D 验收通过，允许提交与推送。
