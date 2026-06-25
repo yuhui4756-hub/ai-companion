@@ -355,3 +355,38 @@
 - 工作区修改文件与测试交接一致：`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/companion/onboarding.ts`、`src/companion/profiles.ts`、`src/memory/memory.ts`、`src/styles.css`、`src/companion/romance.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-E 返工复验通过，允许提交与推送。
+
+## 2026-06-25 v0.3-F1 全伴侣 prompt 瘦身复验通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-F1 复验。
+- 结论：通过。全伴侣类型 prompt 瘦身与回复行为规则重整已进入真实请求链路。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- `src/chat-engine/prompt.ts` 不再拼接旧式长标题块：`【低 AI 味回应规则】`、`【场景回应优先级】`、`【伴侣说话方式】`、`【当前伴侣设定】`。
+- 五类默认伴侣 system prompt 均完成瘦身；非轻恋爱默认伴侣约 630-645 字，轻恋爱约 879 字。
+- 温柔朋友、理性支持、日常/治愈陪伴、角色陪伴、轻恋爱陪伴的 mock 回复质量通过：先接具体情绪，少报告化，少建议清单，保留关系气质。
+- 记忆与风格摘要仍能进入 prompt，但不泄漏 scope、category、confidence、source、status、userReviewed 等内部元数据。
+- 敏感信息静默过滤、不健康依赖不沉淀、高风险表达追加现实支持边界等安全隐私回归通过。
+- 设置页模型预设、API Key 本地保存说明、导出入口和移动端布局回归通过。
+
+### 可后续优化
+
+- 后续可扩展高风险关键词覆盖“自伤”等更宽表达。
+- 后续可由用户在网页设置页本地输入真实 Key，做真实模型手感最终校准；测试报告不得记录完整 Key。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`、`src/companion/romance.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-F1 验收通过，允许提交与推送。
