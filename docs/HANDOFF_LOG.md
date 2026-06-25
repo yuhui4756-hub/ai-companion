@@ -390,3 +390,39 @@
 - 工作区修改文件与测试交接一致：`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`、`src/companion/romance.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-F1 验收通过，允许提交与推送。
+
+## 2026-06-25 v0.3-F2 聊天消息间断感验收通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.3-F2 中间验收。
+- 结论：通过。聊天消息间断感与输入中状态优化已通过浏览器验收。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- 旧等待文案 `正在认真想怎么回你...` 已移除，等待模型时只在聊天区顶部伴侣名旁显示轻量波点输入中状态。
+- mock 返回空行分隔多段文本时，assistant 按多条消息逐段插入，形成连续发消息的视觉效果。
+- 短单段回复保持为 1 条 assistant 消息；超长无空行单段回复可按句合并拆成多条。
+- 轻恋爱伴侣多段消息保留 `message assistant romance` 连续小气泡样式；非轻恋爱伴侣逐段插入但不套用 romance 样式。
+- 错误路径不会残留输入中状态，错误详情仍脱敏。
+- 分段插入过程中清空聊天或切换伴侣时，旧分段不再继续插入，typing 状态被清理。
+- 首次问卷、本地轻恋爱续聊和移动端 390px 布局回归通过。
+
+### 可后续优化
+
+- 如产品希望 70-90 字多句回复也有更强间断感，后续可下调 `splitAssistantReply()` 阈值或按句数拆分。
+- 后续可把伴侣 id/name 固化到消息里，避免切换伴侣后历史 assistant 消息显示成当前新伴侣名。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全规则和历史日志说明。
+- 工作区修改文件与测试交接一致：`src/App.tsx`、`src/styles.css`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.3-F2 验收通过，允许提交与推送。

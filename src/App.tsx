@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Bot,
@@ -180,6 +180,48 @@ function splitMessageParts(content: string): string[] {
     .filter(Boolean);
 }
 
+function splitAssistantReply(content: string): string[] {
+  const paragraphs = splitMessageParts(content);
+  if (paragraphs.length > 1) return paragraphs;
+
+  const trimmed = content.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.length < 72) return [trimmed];
+
+  const sentenceParts = Array.from(trimmed.matchAll(/[^。！？!?]+[。！？!?]?/g))
+    .map((match) => match[0].trim())
+    .filter(Boolean);
+
+  if (sentenceParts.length <= 1) return [trimmed];
+
+  const segments: string[] = [];
+  let current = "";
+  for (const sentence of sentenceParts) {
+    const next = current ? `${current}${sentence}` : sentence;
+    if (next.length > 90 && current) {
+      segments.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+  if (current) segments.push(current);
+  return segments;
+}
+
+function getReplySegmentDelay(segment: string, index: number): number {
+  const baseDelay = index === 0 ? 320 : 260;
+  const lengthDelay = segment.length * 18;
+  return Math.min(1800, Math.max(300, baseDelay + lengthDelay));
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
@@ -191,6 +233,7 @@ export default function App() {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isAssistantTyping, setIsAssistantTyping] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
     scope: "global" as MemoryScope,
@@ -215,6 +258,7 @@ export default function App() {
     companionName: "",
   });
   const [isRomanceReconnectSuppressed, setIsRomanceReconnectSuppressed] = useState(false);
+  const responseSequenceRef = useRef(0);
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -253,16 +297,21 @@ export default function App() {
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveMemories(memories), [memories]);
   useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
-  useEffect(() => setIsRomanceReconnectSuppressed(false), [activeCompanion.id]);
   useEffect(() => {
-    if (activeView !== "chat" || shouldShowOnboarding || isSending || isRomanceReconnectSuppressed) return;
+    responseSequenceRef.current += 1;
+    setIsSending(false);
+    setIsAssistantTyping(false);
+    setIsRomanceReconnectSuppressed(false);
+  }, [activeCompanion.id]);
+  useEffect(() => {
+    if (activeView !== "chat" || shouldShowOnboarding || isSending || isAssistantTyping || isRomanceReconnectSuppressed) return;
     const reconnectMessage = buildRomanceReconnectMessage(activeCompanion, messages);
     if (!reconnectMessage) return;
     setMessages((current) => {
       if (current !== messages) return current;
       return [...current, makeMessage("assistant", reconnectMessage)];
     });
-  }, [activeView, activeCompanion, messages, shouldShowOnboarding, isSending, isRomanceReconnectSuppressed]);
+  }, [activeView, activeCompanion, messages, shouldShowOnboarding, isSending, isAssistantTyping, isRomanceReconnectSuppressed]);
 
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
@@ -359,7 +408,9 @@ export default function App() {
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const userInput = input.trim();
-    if (!userInput || isSending) return;
+    if (!userInput || isSending || isAssistantTyping) return;
+    const responseSequence = responseSequenceRef.current + 1;
+    responseSequenceRef.current = responseSequence;
 
     const userMessage = makeMessage("user", userInput);
     const nextMessages = [...messages, userMessage];
@@ -376,6 +427,7 @@ export default function App() {
     setError("");
     setIsRomanceReconnectSuppressed(false);
     setIsSending(true);
+    setIsAssistantTyping(true);
 
     try {
       const reply = await sendCompanionMessage({
@@ -386,11 +438,24 @@ export default function App() {
         history: messages,
         userInput,
       });
-      setMessages([...nextMessages, makeMessage("assistant", reply)]);
+      setIsSending(false);
+      const segments = splitAssistantReply(reply);
+      if (segments.length === 0) {
+        setIsAssistantTyping(false);
+        return;
+      }
+      for (const [index, segment] of segments.entries()) {
+        await wait(getReplySegmentDelay(segment, index));
+        if (responseSequenceRef.current !== responseSequence) return;
+        setMessages((current) => [...current, makeMessage("assistant", segment)]);
+      }
     } catch (err) {
       setError(getFriendlyError(err));
     } finally {
-      setIsSending(false);
+      if (responseSequenceRef.current === responseSequence) {
+        setIsSending(false);
+        setIsAssistantTyping(false);
+      }
     }
   }
 
@@ -445,8 +510,11 @@ export default function App() {
   }
 
   function clearChat() {
+    responseSequenceRef.current += 1;
     setMessages([]);
     setError("");
+    setIsSending(false);
+    setIsAssistantTyping(false);
     setIsRomanceReconnectSuppressed(true);
   }
 
@@ -462,10 +530,13 @@ export default function App() {
 
   function clearCurrentChatRecords() {
     if (!window.confirm("确定清空当前聊天记录吗？长期记忆、伴侣配置和风格摘要不会被删除。")) return;
+    responseSequenceRef.current += 1;
     setMessages([]);
     saveMessages([]);
     setLatestCandidates([]);
     setError("");
+    setIsSending(false);
+    setIsAssistantTyping(false);
     setIsRomanceReconnectSuppressed(true);
     setDataActionMessage("已清空当前聊天记录，长期记忆和伴侣配置仍保留。");
   }
@@ -869,6 +940,16 @@ export default function App() {
             </section>
 
             <section className="workspace-panel chat-panel">
+              <div className="chat-status-line" aria-live="polite">
+                <span className="chat-companion-name">{companionDisplayName(activeCompanion)}</span>
+                {(isSending || isAssistantTyping) && (
+                  <span className="typing-dots" aria-label={`${companionDisplayName(activeCompanion)}正在输入`}>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                )}
+              </div>
               <div className="message-list" aria-live="polite">
                 {messages.length === 0 ? (
                   <div className="empty-state">
@@ -897,12 +978,6 @@ export default function App() {
                     </article>
                   ))
                 )}
-                {isSending && (
-                  <article className="message assistant">
-                    <span>{companionDisplayName(activeCompanion)}</span>
-                    <p>正在认真想怎么回你...</p>
-                  </article>
-                )}
               </div>
 
               {visibleCandidates.length > 0 && (
@@ -928,7 +1003,7 @@ export default function App() {
                   <button type="button" className="ghost-button" onClick={clearChat}>
                     清空聊天
                   </button>
-                  <button className="primary-button" type="submit" disabled={isSending || !input.trim()}>
+                  <button className="primary-button" type="submit" disabled={isSending || isAssistantTyping || !input.trim()}>
                     <Send size={17} />
                     发送
                   </button>

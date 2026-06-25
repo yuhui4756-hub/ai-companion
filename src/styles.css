@@ -417,7 +417,59 @@ button:disabled {
 .chat-panel {
   display: grid;
   min-height: calc(100vh - 120px);
-  grid-template-rows: minmax(280px, 1fr) auto auto;
+  grid-template-rows: auto minmax(280px, 1fr) auto auto;
+}
+
+.chat-status-line {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  margin-bottom: 10px;
+  gap: 8px;
+  color: #526d78;
+  font-size: 13px;
+}
+
+.chat-companion-name {
+  font-weight: 700;
+  color: #2f4a55;
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 30px;
+}
+
+.typing-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7da1ae;
+  animation: typingDotPulse 1.05s ease-in-out infinite;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes typingDotPulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  35% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 .onboarding-panel {
