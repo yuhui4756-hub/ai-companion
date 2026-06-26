@@ -534,3 +534,36 @@
 - 工作区修改文件符合 v0.4.1 范围：`README.md`、`src/App.tsx`、`src/companion/promptValidation.ts`、`src/companion/romanceTemplates.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.4.1 验收通过，允许提交与推送。
+
+## 2026-06-27 v0.4.2 单聊天页信息架构收口通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.4.2 单聊天页信息架构重整与轻量返工复验。
+- 结论：通过复验。
+- 阻塞问题：无。
+- 普通问题：无。此前“双弹窗层叠”和“blocked 人设保存按钮不提前禁用”两个普通体验问题已修复。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- 清空 localStorage 后首次打开只出现一个主弹窗：先显示用户须知，确认后再显示创建恋爱伴侣弹窗，无双弹窗层叠。
+- 单聊天页结构生效：左侧为伴侣名字列表 + 新建 + 更多，中间为聊天主区域，顶部提供伴侣、记忆、风格、设置、须知按钮，右侧常驻栏未恢复。
+- 创建/默认女友路径后 `ai-companion:messages` 为空，未自动插入 assistant 开场，也未触发本地续聊。
+- 伴侣管理面板支持新建草稿、取消不落盘、保存后新增并选中；人设编辑框默认显示当前模板/核心提示词。
+- 人设编辑框输入 blocked 内容会即时显示温和提示并禁用保存按钮；valid custom prompt 可保存并进入 system prompt，blocked prompt 不进入请求体。
+- 伴侣设定 UI 和 prompt 注入均不再包含 `亲密边界`、`问题处理方式`、`边界备注`、`problemSolvingStyle`、`intimacyBoundary`、`boundaryNotes` 等旧字段。
+- 记忆、风格、设置均改为顶部按钮打开弹窗；记忆可新增/编辑/删除，风格可导入/添加，设置保留 DeepSeek/OpenAI 兼容预设、本地数据管理和导出说明。
+- 导出文件名为 `ai-companion-local-data-v0.4.2-YYYY-MM-DD.json`，payload `version` 为 `v0.4.2`；导出结构不含 API Key 值、不含 `apiKey` 字段、不含原始聊天 `messages` 字段。
+- F2 多段 assistant 消息逐段插入、输入中波点，F3 浅蓝白玻璃 UI 和 390px 移动端无横向溢出均回归通过。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.4.2 范围：`README.md`、`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/storage/localStorage.ts`、`src/styles.css`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.4.2 复验通过，允许提交与推送。

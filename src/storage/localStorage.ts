@@ -215,7 +215,7 @@ export function buildLocalDataExport(params: {
 }): LocalDataExport {
   const { apiKey: _apiKey, ...providerConfigWithoutApiKey } = params.providerConfig;
   return {
-    version: "v0.4.1",
+    version: "v0.4.2",
     exportedAt: nowISO(),
     providerConfigWithoutApiKey: {
       ...providerConfigWithoutApiKey,

@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import {
   companionTraits,
-  defaultCompanions,
   getCompanionProfile,
   getTraitConflictLabels,
   getTraitsByIds,
@@ -50,7 +49,6 @@ import {
   isMemoryInjectable,
   memoryCategoryLabels,
   memoryScopeLabels,
-  selectRelevantMemories,
 } from "./memory/memory";
 import { ModelProviderError } from "./model-provider/openai";
 import {
@@ -159,29 +157,6 @@ function getFriendlyError(error: unknown): string {
   return "发生了未预期错误，请稍后重试。";
 }
 
-function maskKey(apiKey: string): string {
-  if (!apiKey) return "未填写";
-  if (apiKey.length <= 8) return "已保存";
-  return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
-}
-
-function newCompanion(): CompanionProfile {
-  const now = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    name: "",
-    relationshipType: "friend",
-    traitIds: ["tone-warm", "emotion-hold", "solve-listen", "boundary-independent"],
-    customPersonalityText: "",
-    intimacyBoundary: "尊重边界，不制造依赖。",
-    responsePace: "跟随用户节奏。",
-    problemSolvingStyle: "先接住情绪，再给可执行建议。",
-    boundaryNotes: "不冒充真实个人或专业人士。",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
 function companionDisplayName(companion: CompanionProfile): string {
   return companion.name.trim() || "未命名伴侣";
 }
@@ -278,6 +253,10 @@ export default function App() {
     proactiveLevel: getDefaultRomanceTemplate("female").defaultProactiveLevel ?? "medium",
   }));
   const [promptDraftByCompanionId, setPromptDraftByCompanionId] = useState<Record<string, string>>({});
+  const [companionDraft, setCompanionDraft] = useState<CompanionProfile | null>(null);
+  const [isMemoryAddOpen, setIsMemoryAddOpen] = useState(false);
+  const [stylePanelMode, setStylePanelMode] = useState<"list" | "import" | "new">("list");
+  const [isTraitModalOpen, setIsTraitModalOpen] = useState(false);
   const [isRomanceReconnectSuppressed, setIsRomanceReconnectSuppressed] = useState(false);
   const responseSequenceRef = useRef(0);
 
@@ -291,10 +270,6 @@ export default function App() {
   );
   const activeTraits = useMemo(() => getTraitsByIds(activeCompanion.traitIds), [activeCompanion.traitIds]);
   const traitConflicts = useMemo(() => getTraitConflictLabels(activeCompanion.traitIds), [activeCompanion.traitIds]);
-  const relevantPreview = useMemo(
-    () => selectRelevantMemories(memories, input || messages[messages.length - 1]?.content || "", activeCompanion.id),
-    [input, memories, messages, activeCompanion.id],
-  );
   const visibleCandidates = latestCandidates.filter((candidate) => memoryVisibleActions.has(candidate.suggestedAction));
   const visibleMemories = memories.filter((memory) => {
     if (memoryFilter !== "all" && memory.scope !== memoryFilter) return false;
@@ -309,7 +284,7 @@ export default function App() {
   );
   const shouldShowOnboarding =
     isOnboardingOpen &&
-    activeView === "chat" &&
+    !isPrivacyNoticeOpen &&
     (isOnboardingManuallyOpened ||
       (onboardingState.status === "new" && !hasUserCreatedCompanion && messages.length === 0));
   const selectedRomanceTemplate = useMemo(
@@ -324,7 +299,27 @@ export default function App() {
     () => buildBlendPromptSummary(onboardingDraft.blendTraitIds ?? []),
     [onboardingDraft.blendTraitIds],
   );
-  const activePromptDraft = promptDraftByCompanionId[activeCompanion.id] ?? activeCompanion.customSystemPrompt ?? "";
+  const editorCompanion = companionDraft ?? activeCompanion;
+  const activePromptDraft =
+    promptDraftByCompanionId[activeCompanion.id] ??
+    activeCompanion.customSystemPrompt ??
+    activeCompanion.templatePrompt ??
+    (isRomanceCompanion(activeCompanion)
+      ? getRomanceTemplate(activeCompanion.primaryRomanceTemplateId).templatePrompt
+      : activeCompanion.customPersonalityText ?? "");
+  const editorPromptDraft =
+    promptDraftByCompanionId[editorCompanion.id] ??
+    editorCompanion.customSystemPrompt ??
+    editorCompanion.templatePrompt ??
+    (isRomanceCompanion(editorCompanion)
+      ? getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).templatePrompt
+      : editorCompanion.customPersonalityText ?? "");
+  const editorPromptValidation = useMemo(
+    () => validateCustomSystemPrompt(editorPromptDraft),
+    [editorPromptDraft],
+  );
+  const editorPromptIssues =
+    editorPromptValidation.issues.length > 0 ? editorPromptValidation.issues : editorCompanion.promptValidationIssues ?? [];
 
   useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
   useEffect(() => saveCompanions(companions), [companions]);
@@ -337,7 +332,7 @@ export default function App() {
     setIsAssistantTyping(false);
   }, [activeCompanion.id]);
   useEffect(() => {
-    if (activeView !== "chat" || shouldShowOnboarding || isSending || isAssistantTyping || isRomanceReconnectSuppressed) return;
+    if (shouldShowOnboarding || isSending || isAssistantTyping || isRomanceReconnectSuppressed) return;
     if (messages.length === 0) return;
     const reconnectMessage = buildRomanceReconnectMessage(activeCompanion, messages);
     if (!reconnectMessage) return;
@@ -345,7 +340,7 @@ export default function App() {
       if (current !== messages) return current;
       return [...current, makeMessage("assistant", reconnectMessage)];
     });
-  }, [activeView, activeCompanion, messages, shouldShowOnboarding, isSending, isAssistantTyping, isRomanceReconnectSuppressed]);
+  }, [activeCompanion, messages, shouldShowOnboarding, isSending, isAssistantTyping, isRomanceReconnectSuppressed]);
 
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
@@ -383,11 +378,69 @@ export default function App() {
     );
   }
 
-  function addCompanion() {
-    const companion = newCompanion();
-    setCompanions((current) => [{ ...companion, source: "manual", showInMainList: false }, ...current]);
-    setActiveCompanionId(companion.id);
+  function updateEditorCompanion(patch: Partial<CompanionProfile>) {
+    if (companionDraft) {
+      setCompanionDraft((current) => (current ? { ...current, ...patch, updatedAt: new Date().toISOString() } : current));
+      return;
+    }
+    updateCompanion(editorCompanion.id, patch);
+  }
+
+  function startCompanionDraft() {
+    const draft = createRomanceCompanionFromDraft({ gender: "female" }, "manual");
+    setCompanionDraft({
+      ...draft,
+      id: `draft-${crypto.randomUUID()}`,
+      name: "",
+      customSystemPrompt: draft.templatePrompt,
+      showInMainList: true,
+    });
     setActiveView("companion");
+  }
+
+  function cancelCompanionDraft() {
+    setPromptDraftByCompanionId((current) => {
+      if (!companionDraft) return current;
+      const next = { ...current };
+      delete next[companionDraft.id];
+      return next;
+    });
+    setCompanionDraft(null);
+  }
+
+  function saveCompanionDraft() {
+    if (!companionDraft) return;
+    const promptText =
+      promptDraftByCompanionId[companionDraft.id] ?? companionDraft.customSystemPrompt ?? companionDraft.templatePrompt ?? "";
+    const validation = validateCustomSystemPrompt(promptText);
+    if (validation.status === "blocked") {
+      setCompanionDraft((current) =>
+        current
+          ? {
+              ...current,
+              promptValidationStatus: validation.status,
+              promptValidationIssues: validation.issues,
+              updatedAt: new Date().toISOString(),
+            }
+          : current,
+      );
+      return;
+    }
+
+    const savedCompanion: CompanionProfile = {
+      ...companionDraft,
+      id: `companion-romance-${crypto.randomUUID()}`,
+      name: companionDraft.name.trim() || (companionDraft.gender === "male" ? "阿澈" : "予安"),
+      customSystemPrompt: promptText.trim() || undefined,
+      promptValidationStatus: validation.status,
+      promptValidationIssues: validation.issues,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setCompanions((current) => [savedCompanion, ...current]);
+    setActiveCompanionId(savedCompanion.id);
+    setIsRomanceReconnectSuppressed(true);
+    setCompanionDraft(null);
   }
 
   function resetRomanceDraft(gender: RomanceGender = "female") {
@@ -398,22 +451,6 @@ export default function App() {
       blendTraitIds: template.recommendedBlendTraitIds.slice(0, 2),
       proactiveLevel: template.defaultProactiveLevel ?? "medium",
     });
-  }
-
-  function addRomanceCompanion() {
-    resetRomanceDraft("female");
-    setOnboardingStep(0);
-    setIsOnboardingManuallyOpened(true);
-    setIsOnboardingOpen(true);
-    setActiveView("chat");
-  }
-
-  function openCompanionOnboarding() {
-    resetRomanceDraft(onboardingDraft.gender ?? "female");
-    setOnboardingStep(0);
-    setIsOnboardingManuallyOpened(true);
-    setIsOnboardingOpen(true);
-    setActiveView("chat");
   }
 
   function skipOnboarding() {
@@ -483,8 +520,11 @@ export default function App() {
   }
 
   function restoreActiveCompanionTemplatePrompt() {
-    setPromptDraftByCompanionId((current) => ({ ...current, [activeCompanion.id]: "" }));
-    updateCompanion(activeCompanion.id, {
+    const templatePrompt = isRomanceCompanion(editorCompanion)
+      ? editorCompanion.templatePrompt ?? getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).templatePrompt
+      : editorCompanion.customPersonalityText ?? "";
+    setPromptDraftByCompanionId((current) => ({ ...current, [editorCompanion.id]: templatePrompt }));
+    updateEditorCompanion({
       customSystemPrompt: undefined,
       promptValidationStatus: "valid",
       promptValidationIssues: [],
@@ -496,11 +536,24 @@ export default function App() {
   }
 
   function toggleTrait(traitId: string) {
-    const exists = activeCompanion.traitIds.includes(traitId);
+    const exists = editorCompanion.traitIds.includes(traitId);
     const nextTraitIds = exists
-      ? activeCompanion.traitIds.filter((id) => id !== traitId)
-      : [...activeCompanion.traitIds, traitId].slice(0, 6);
-    updateCompanion(activeCompanion.id, { traitIds: nextTraitIds });
+      ? editorCompanion.traitIds.filter((id) => id !== traitId)
+      : [...editorCompanion.traitIds, traitId].slice(0, 6);
+    updateEditorCompanion({ traitIds: nextTraitIds });
+  }
+
+  function toggleEditorBlendTrait(traitId: BlendTraitId) {
+    const currentIds = editorCompanion.blendTraitIds ?? [];
+    const nextIds = currentIds.includes(traitId)
+      ? currentIds.filter((id) => id !== traitId)
+      : currentIds.length >= 3
+        ? currentIds
+        : [...currentIds, traitId];
+    updateEditorCompanion({
+      blendTraitIds: nextIds,
+      blendPromptSummary: buildBlendPromptSummary(nextIds),
+    });
   }
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
@@ -671,7 +724,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `ai-companion-local-data-v0.3-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `ai-companion-local-data-v0.4.2-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -767,21 +820,26 @@ export default function App() {
     );
   }
 
-  function renderCompanionCards(profiles: CompanionProfile[], allowVisibilityToggle = false) {
+  function renderCompanionCards(profiles: CompanionProfile[], allowVisibilityToggle = false, compact = false) {
     return profiles.map((profile) => (
       <article className="companion-list-item" key={profile.id}>
         <button
           className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
-          onClick={() => setActiveCompanionId(profile.id)}
+          onClick={() => {
+            setActiveCompanionId(profile.id);
+            setCompanionDraft(null);
+          }}
           type="button"
         >
-          <span>{relationshipLabels[profile.relationshipType]}</span>
+          {!compact && <span>{relationshipLabels[profile.relationshipType]}</span>}
           <strong>{companionDisplayName(profile)}</strong>
-          <small>
-            {profile.customPersonalityText ||
-              getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") ||
-              "未选择特质"}
-          </small>
+          {!compact && (
+            <small>
+              {profile.customPersonalityText ||
+                getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") ||
+                "未选择特质"}
+            </small>
+          )}
         </button>
         {allowVisibilityToggle && !isRomanceCompanion(profile) && (
           <button
@@ -1007,11 +1065,6 @@ export default function App() {
     );
   }
 
-  const isConfigured =
-    Boolean(providerConfig.baseURL.trim()) &&
-    Boolean(providerConfig.model.trim()) &&
-    Boolean(providerConfig.apiKey.trim());
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1025,128 +1078,95 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="主导航">
-          <button className={activeView === "chat" ? "active" : ""} onClick={() => setActiveView("chat")}>
-            <MessageCircle size={18} />
-            聊天
-          </button>
-          <button className={activeView === "companion" ? "active" : ""} onClick={() => setActiveView("companion")}>
-            <UserRoundCog size={18} />
-            伴侣
-          </button>
-          <button className={activeView === "memory" ? "active" : ""} onClick={() => setActiveView("memory")}>
-            <BookOpen size={18} />
-            记忆
-          </button>
-          <button className={activeView === "style" ? "active" : ""} onClick={() => setActiveView("style")}>
-            <Sparkles size={18} />
-            风格
-          </button>
-          <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
-            <Settings size={18} />
-            设置
-          </button>
-        </nav>
-
-        <section className="status-panel" aria-label="当前状态">
-          <div className="status-row">
-            <span>当前伴侣</span>
-            <strong>{companionDisplayName(activeCompanion)}</strong>
+        <section className="sidebar-companions" aria-label="伴侣列表">
+          <div className="section-heading compact-heading">
+            <div>
+              <p className="eyebrow">Companions</p>
+              <h3>伴侣</h3>
+            </div>
           </div>
-          <div className="status-row">
-            <span>关系</span>
-            <strong>{relationshipLabels[activeCompanion.relationshipType]}</strong>
+          <div className="companion-list compact-list">
+            {renderCompanionCards(mainCompanions, false, true)}
           </div>
-          <div className="status-row">
-            <span>模型</span>
-            <strong>{providerConfig.model || "未配置"}</strong>
-          </div>
-          <div className="status-row">
-            <span>API Key</span>
-            <strong>{maskKey(providerConfig.apiKey)}</strong>
-          </div>
-          <div className={isConfigured ? "safe-note good" : "safe-note warn"}>
-            <ShieldCheck size={16} />
-            {isConfigured ? "配置仅保存在本机浏览器" : "先到设置填写接口配置"}
-          </div>
-          <button className="text-button" type="button" onClick={openPrivacyNotice}>
-            查看用户须知
+          <button className="primary-button full-width" type="button" onClick={startCompanionDraft}>
+            <Plus size={16} />
+            新建
+          </button>
+          <button className="ghost-button full-width" type="button" onClick={() => setActiveView("companion")}>
+            <UserRoundCog size={16} />
+            更多
           </button>
         </section>
       </aside>
 
       <main className="main">
-        {isPrivacyNoticeOpen && (
-          <section className="privacy-notice" aria-label="用户须知">
-            <div>
-              <strong>用户须知</strong>
-              <p>
-                这是本地 BYOK 的 AI 恋爱伴侣 Demo。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器；
-                聊天时浏览器会用你填写的接口请求模型服务商。TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺。
-                敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。
-              </p>
-            </div>
-            <div className="privacy-notice-actions">
-              {privacyNoticeAck.acknowledged && (
-                <button className="ghost-button" type="button" onClick={() => setIsPrivacyNoticeOpen(false)}>
-                  关闭
-                </button>
-              )}
-              <button className="primary-button" type="button" onClick={acknowledgePrivacyNotice}>
-                知道了
-              </button>
-            </div>
-          </section>
-        )}
-
         <header className="topbar">
           <div>
-            <p className="eyebrow">v0.4.1 恋爱陪伴优先 Demo</p>
-            <h2>
-              {activeView === "chat"
-                ? "恋爱陪伴聊天"
-                : activeView === "settings"
-                  ? "BYOK 设置"
-                  : activeView === "memory"
-                    ? "长期记忆"
-                    : activeView === "style"
-                      ? "风格参考"
-                      : "自定义伴侣"}
-            </h2>
+            <p className="eyebrow">v0.4.2 恋爱陪伴优先 Demo</p>
+            <h2>{companionDisplayName(activeCompanion)}</h2>
           </div>
-          <button className="ghost-button" onClick={() => setActiveView("settings")}>
-            <KeyRound size={17} />
-            配置接口
-          </button>
+          <div className="top-actions" aria-label="聊天工具">
+            <button className="ghost-button" type="button" onClick={() => setActiveView("companion")}>
+              <UserRoundCog size={17} />
+              伴侣
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setActiveView("memory")}>
+              <BookOpen size={17} />
+              记忆
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setActiveView("style")}>
+              <Sparkles size={17} />
+              风格
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setActiveView("settings")}>
+              <Settings size={17} />
+              设置
+            </button>
+            <button className="ghost-button" type="button" onClick={openPrivacyNotice}>
+              <ShieldCheck size={17} />
+              须知
+            </button>
+          </div>
         </header>
 
-        {shouldShowOnboarding && renderOnboardingPanel()}
+        {isPrivacyNoticeOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="用户须知">
+            <div className="modal-panel notice-modal">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Notice</p>
+                  <h2>用户须知</h2>
+                </div>
+                {privacyNoticeAck.acknowledged && (
+                  <button className="ghost-button" type="button" onClick={() => setIsPrivacyNoticeOpen(false)}>
+                    关闭
+                  </button>
+                )}
+              </div>
+              <div className="notice-list">
+                <p>这是本地 BYOK 的 AI 恋爱伴侣 Demo。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器。</p>
+                <p>聊天时浏览器会用你填写的接口请求模型服务商；项目不内置、不上传、不代管你的真实 Key。</p>
+                <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
+                <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
+              </div>
+              <div className="privacy-notice-actions">
+                <button className="primary-button" type="button" onClick={acknowledgePrivacyNotice}>
+                  知道了
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {activeView === "chat" && !shouldShowOnboarding && (
-          <div className="content-grid chat-layout">
-            <section className="workspace-panel companion-panel">
-              <div className="section-title">
-                <Bot size={18} />
-                <h3>当前伴侣</h3>
-              </div>
-              <div className="companion-list">
-                {renderCompanionCards(mainCompanions)}
-              </div>
-              <button className="primary-button full-width" onClick={addRomanceCompanion}>
-                <Plus size={16} />
-                创建恋爱伴侣
-              </button>
-              <button className="ghost-button full-width" onClick={() => setActiveView("companion")}>
-                <UserRoundCog size={16} />
-                更多/兼容旧伴侣
-              </button>
-              <div className="profile-detail">
-                <h3>{companionDisplayName(activeCompanion)}</h3>
-                <p>{activeCompanion.customPersonalityText || "还没有自定义性格补充。"}</p>
-                <p>{activeCompanion.boundaryNotes || "默认遵守安全边界。"}</p>
-              </div>
-            </section>
+        {shouldShowOnboarding && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="创建恋爱伴侣">
+            <div className="modal-panel">
+              {renderOnboardingPanel()}
+            </div>
+          </div>
+        )}
 
+        <div className="content-grid chat-layout">
             <section className="workspace-panel chat-panel">
               <div className="chat-status-line" aria-live="polite">
                 <span className="chat-companion-name">{companionDisplayName(activeCompanion)}</span>
@@ -1163,11 +1183,7 @@ export default function App() {
                   <div className="empty-state">
                     <Brain size={30} />
                     <h3>TA 已经准备好了</h3>
-                    <p>聊天会从你开口开始。想换一个人设，也可以先创建新的恋爱伴侣。</p>
-                    <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
-                      <Sparkles size={16} />
-                      创建恋爱伴侣
-                    </button>
+                    <p>聊天会从你开口开始。想调整人设、记忆或设置，可以用上方按钮打开对应面板。</p>
                   </div>
                 ) : (
                   messages.map((message) => (
@@ -1219,34 +1235,20 @@ export default function App() {
               </form>
             </section>
 
-            <section className="workspace-panel memory-preview">
-              <div className="section-title">
-                <BookOpen size={18} />
-                <h3>本轮相关记忆</h3>
-              </div>
-              {relevantPreview.length === 0 ? (
-                <p className="muted">还没有可注入的 active 记忆。可以聊天自动沉淀，或去“记忆”手动添加。</p>
-              ) : (
-                <ul className="memory-mini-list">
-                  {relevantPreview.map((memory) => (
-                    <li key={memory.id}>
-                      <strong>
-                        {memoryScopeLabels[memory.scope]} · {memoryCategoryLabels[memory.category]}
-                      </strong>
-                      <span>{memory.content}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="style-mini">
-                <strong>风格参考</strong>
-                <span>{activeStyleSummary ? activeStyleSummary.name : "未绑定"}</span>
-              </div>
-            </section>
           </div>
-        )}
 
         {activeView === "companion" && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="伴侣管理">
+            <div className="modal-panel modal-panel-wide">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Companion</p>
+                  <h2>伴侣管理</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setActiveView("chat")}>
+                  关闭
+                </button>
+              </div>
           <div className="content-grid companion-editor-layout">
             <section className="workspace-panel">
               <div className="section-heading">
@@ -1254,7 +1256,7 @@ export default function App() {
                   <p className="eyebrow">{mainCompanions.length} 个主列表伴侣</p>
                   <h3>恋爱伴侣</h3>
                 </div>
-                <button className="primary-button" onClick={addRomanceCompanion}>
+                <button className="primary-button" onClick={startCompanionDraft}>
                   <Plus size={16} />
                   新建恋爱伴侣
                 </button>
@@ -1264,11 +1266,8 @@ export default function App() {
                 <div>
                   <strong>恋爱陪伴是当前主路径</strong>
                   <p>先选男友/女友方向，再选主模板和 1-3 个融合气质。旧类型收在兼容入口里，想用时再打开。</p>
-                  <button className="ghost-button" type="button" onClick={addRomanceCompanion}>
+                  <button className="ghost-button" type="button" onClick={startCompanionDraft}>
                     创建恋爱伴侣
-                  </button>
-                  <button className="text-button" type="button" onClick={addCompanion}>
-                    新建旧类型/实验入口
                   </button>
                 </div>
               </div>
@@ -1304,17 +1303,17 @@ export default function App() {
                 <label>
                   伴侣名字
                   <input
-                    value={activeCompanion.name}
-                    onChange={(event) => updateCompanion(activeCompanion.id, { name: event.target.value })}
+                    value={editorCompanion.name}
+                    onChange={(event) => updateEditorCompanion({ name: event.target.value })}
                     placeholder="可留空；提示词会使用“当前伴侣”，不会编造固定名字"
                   />
                 </label>
                 <label>
                   关系类型
                   <select
-                    value={activeCompanion.relationshipType}
+                    value={editorCompanion.relationshipType}
                     onChange={(event) =>
-                      updateCompanion(activeCompanion.id, { relationshipType: event.target.value as RelationshipType })
+                      updateEditorCompanion({ relationshipType: event.target.value as RelationshipType })
                     }
                   >
                     {relationshipOptions.map(([value, label]) => (
@@ -1327,51 +1326,31 @@ export default function App() {
                 <label>
                   自定义性格补充
                   <textarea
-                    value={activeCompanion.customPersonalityText ?? ""}
+                    value={editorCompanion.customPersonalityText ?? ""}
                     onChange={(event) =>
-                      updateCompanion(activeCompanion.id, { customPersonalityText: event.target.value })
+                      updateEditorCompanion({ customPersonalityText: event.target.value })
                     }
                     rows={3}
                     placeholder="例如：说话更像可靠的朋友，少说大道理，多陪我把事情拆开。"
                   />
                 </label>
                 <label>
-                  亲密边界
-                  <input
-                    value={activeCompanion.intimacyBoundary ?? ""}
-                    onChange={(event) => updateCompanion(activeCompanion.id, { intimacyBoundary: event.target.value })}
-                  />
-                </label>
-                <label>
                   回应节奏
                   <input
-                    value={activeCompanion.responsePace ?? ""}
-                    onChange={(event) => updateCompanion(activeCompanion.id, { responsePace: event.target.value })}
+                    value={editorCompanion.responsePace ?? ""}
+                    onChange={(event) => updateEditorCompanion({ responsePace: event.target.value })}
                   />
                 </label>
-                <label>
-                  问题处理方式
-                  <input
-                    value={activeCompanion.problemSolvingStyle ?? ""}
-                    onChange={(event) =>
-                      updateCompanion(activeCompanion.id, { problemSolvingStyle: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  边界备注
-                  <textarea
-                    value={activeCompanion.boundaryNotes ?? ""}
-                    onChange={(event) => updateCompanion(activeCompanion.id, { boundaryNotes: event.target.value })}
-                    rows={2}
-                  />
-                </label>
-                {isRomanceCompanion(activeCompanion) && (
+                <button className="primary-button trait-open-button" type="button" onClick={() => setIsTraitModalOpen(true)}>
+                  <Sparkles size={16} />
+                  性格/特质组合
+                </button>
+                {isRomanceCompanion(editorCompanion) && (
                   <div className="settings-block">
                     <div className="section-heading">
                       <div>
                         <p className="eyebrow">
-                          当前使用：{activeCompanion.customSystemPrompt ? "已自定义" : "模板"}
+                          当前使用：{editorCompanion.customSystemPrompt ? "已自定义" : "模板"}
                         </p>
                         <h3>自己写 TA 的完整人设</h3>
                       </div>
@@ -1380,18 +1359,18 @@ export default function App() {
                       这段会影响 TA 的说话方式，只保存在当前浏览器本地。你可以写性格、语气、恋爱氛围、怎么称呼你、什么时候撒娇或吃醋。
                     </p>
                     <div className="onboarding-summary">
-                      <strong>{activeCompanion.templateName ?? getRomanceTemplate(activeCompanion.primaryRomanceTemplateId).label}</strong>
-                      <p>{activeCompanion.templatePrompt ?? getRomanceTemplate(activeCompanion.primaryRomanceTemplateId).templatePrompt}</p>
-                      {activeCompanion.blendPromptSummary && <span>{activeCompanion.blendPromptSummary}</span>}
+                      <strong>{editorCompanion.templateName ?? getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).label}</strong>
+                      <p>{editorCompanion.templatePrompt ?? getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).templatePrompt}</p>
+                      {editorCompanion.blendPromptSummary && <span>{editorCompanion.blendPromptSummary}</span>}
                     </div>
                     <label>
                       恋爱人设 / system prompt
                       <textarea
-                        value={activePromptDraft}
+                        value={editorPromptDraft}
                         onChange={(event) =>
                           setPromptDraftByCompanionId((current) => ({
                             ...current,
-                            [activeCompanion.id]: event.target.value,
+                            [editorCompanion.id]: event.target.value,
                           }))
                         }
                         rows={7}
@@ -1401,11 +1380,11 @@ export default function App() {
                     <p className="onboarding-hint">
                       保存前会做本地边界检查。别放真实密钥、证件号、他人隐私或现实冒充要求。
                     </p>
-                    {activeCompanion.promptValidationIssues && activeCompanion.promptValidationIssues.length > 0 && (
-                      <div className={activeCompanion.promptValidationStatus === "blocked" ? "warning-box" : "privacy-callout"}>
+                    {editorPromptIssues.length > 0 && (
+                      <div className={editorPromptValidation.status === "blocked" ? "warning-box" : "privacy-callout"}>
                         <ShieldCheck size={18} />
                         <div>
-                          {activeCompanion.promptValidationIssues.map((issue) => (
+                          {editorPromptIssues.map((issue) => (
                             <p key={`${issue.code}-${issue.message}`}>{issue.message}</p>
                           ))}
                         </div>
@@ -1415,50 +1394,136 @@ export default function App() {
                       <button className="ghost-button" type="button" onClick={restoreActiveCompanionTemplatePrompt}>
                         恢复模板
                       </button>
-                      <button className="primary-button" type="button" onClick={saveActiveCompanionPromptDraft}>
-                        保存人设
-                      </button>
+                      {companionDraft ? (
+                        <>
+                          <button className="ghost-button" type="button" onClick={cancelCompanionDraft}>
+                            取消
+                          </button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={saveCompanionDraft}
+                          disabled={editorPromptValidation.status === "blocked"}
+                        >
+                          保存
+                        </button>
+                        </>
+                      ) : (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={saveActiveCompanionPromptDraft}
+                          disabled={editorPromptValidation.status === "blocked"}
+                        >
+                          保存人设
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             </section>
+          </div>
+            </div>
+          </div>
+        )}
 
-            <section className="workspace-panel trait-panel">
-              <div className="section-title">
-                <Sparkles size={18} />
-                <h3>性格/特质组合</h3>
+        {isTraitModalOpen && (
+          <div className="modal-backdrop nested" role="dialog" aria-modal="true" aria-label="性格特质组合">
+            <div className="modal-panel trait-modal">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Personality</p>
+                  <h2>性格/特质组合</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setIsTraitModalOpen(false)}>
+                  关闭
+                </button>
               </div>
-              <div className="trait-grid">
-                {companionTraits.map((trait) => (
-                  <button
-                    key={trait.id}
-                    className={activeCompanion.traitIds.includes(trait.id) ? "trait-chip selected" : "trait-chip"}
-                    onClick={() => toggleTrait(trait.id)}
-                  >
-                    <strong>{trait.label}</strong>
-                    <span>{trait.promptText}</span>
-                  </button>
-                ))}
-              </div>
-              {traitConflicts.length > 0 && (
-                <div className="warning-box">
-                  {traitConflicts.map((conflict) => (
-                    <p key={conflict}>{conflict}</p>
+              {isRomanceCompanion(editorCompanion) && (
+                <div className="settings-block">
+                  <div className="section-title">
+                    <Sparkles size={18} />
+                    <h3>主模板与融合气质</h3>
+                  </div>
+                  <div className="onboarding-summary">
+                    <strong>
+                      {editorCompanion.templateName ??
+                        getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).label}
+                    </strong>
+                    <p>
+                      {editorCompanion.templatePrompt ??
+                        getRomanceTemplate(editorCompanion.primaryRomanceTemplateId).templatePrompt}
+                    </p>
+                  </div>
+                  <div className="trait-grid compact-trait-grid">
+                    {blendTraits.map((trait) => {
+                      const selected = (editorCompanion.blendTraitIds ?? []).includes(trait.id);
+                      return (
+                        <button
+                          key={trait.id}
+                          className={selected ? "trait-chip selected" : "trait-chip"}
+                          type="button"
+                          onClick={() => toggleEditorBlendTrait(trait.id)}
+                          disabled={!selected && (editorCompanion.blendTraitIds ?? []).length >= 3}
+                        >
+                          <strong>{trait.label}</strong>
+                          <span>{trait.sceneHint}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="onboarding-hint">融合气质最多选 3 个，只在合适场景短暂带出，不会盖过主模板。</p>
+                </div>
+              )}
+              <div className="settings-block">
+                <div className="section-title">
+                  <Bot size={18} />
+                  <h3>特质标签</h3>
+                </div>
+                <div className="trait-grid compact-trait-grid">
+                  {companionTraits.map((trait) => (
+                    <button
+                      key={trait.id}
+                      className={editorCompanion.traitIds.includes(trait.id) ? "trait-chip selected" : "trait-chip"}
+                      onClick={() => toggleTrait(trait.id)}
+                      type="button"
+                    >
+                      <strong>{trait.label}</strong>
+                      <span>{trait.promptText}</span>
+                    </button>
                   ))}
                 </div>
-              )}
-              {activeTraits.some((trait) => trait.safetyNotes) && (
-                <div className="privacy-callout">
-                  <ShieldCheck size={18} />
-                  <p>{activeTraits.map((trait) => trait.safetyNotes).filter(Boolean).join(" ")}</p>
-                </div>
-              )}
-            </section>
+                {traitConflicts.length > 0 && (
+                  <div className="warning-box">
+                    {traitConflicts.map((conflict) => (
+                      <p key={conflict}>{conflict}</p>
+                    ))}
+                  </div>
+                )}
+                {activeTraits.some((trait) => trait.safetyNotes) && (
+                  <div className="privacy-callout">
+                    <ShieldCheck size={18} />
+                    <p>{activeTraits.map((trait) => trait.safetyNotes).filter(Boolean).join(" ")}</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
         {activeView === "settings" && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="设置">
+            <div className="modal-panel">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Settings</p>
+                  <h2>设置</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setActiveView("chat")}>
+                  关闭
+                </button>
+              </div>
           <section className="workspace-panel wide-panel">
             <div className="section-heading">
               <div>
@@ -1616,83 +1681,102 @@ export default function App() {
               {dataActionMessage && <p className="inline-status">{dataActionMessage}</p>}
             </div>
           </section>
+            </div>
+          </div>
         )}
 
         {activeView === "memory" && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="记忆">
+            <div className="modal-panel modal-panel-wide">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Memory</p>
+                  <h2>记忆</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setActiveView("chat")}>
+                  关闭
+                </button>
+              </div>
           <div className="content-grid memory-layout">
             <section className="workspace-panel">
               <div className="section-title">
                 <Plus size={18} />
-                <h3>新增记忆</h3>
+                <h3>记忆工具</h3>
               </div>
-              <form className="memory-form" onSubmit={handleAddMemory}>
-                <label>
-                  作用范围
-                  <select
-                    value={memoryDraft.scope}
-                    onChange={(event) =>
-                      setMemoryDraft((current) => ({ ...current, scope: event.target.value as MemoryScope }))
-                    }
-                  >
-                    <option value="global">全局</option>
-                    <option value="companion">当前伴侣专属</option>
-                  </select>
-                </label>
-                <label>
-                  分类
-                  <select
-                    value={memoryDraft.category}
-                    onChange={(event) =>
-                      setMemoryDraft((current) => ({
-                        ...current,
-                        category: event.target.value as MemoryCategory,
-                      }))
-                    }
-                  >
-                    {memoryCategories.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  重要度
-                  <select
-                    value={memoryDraft.importance}
-                    onChange={(event) =>
-                      setMemoryDraft((current) => ({
-                        ...current,
-                        importance: Number(event.target.value) as MemoryImportance,
-                      }))
-                    }
-                  >
-                    {importanceOptions.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  内容
-                  <textarea
-                    value={memoryDraft.content}
-                    onChange={(event) =>
-                      setMemoryDraft((current) => ({
-                        ...current,
-                        content: event.target.value,
-                      }))
-                    }
-                    placeholder="例如：用户不喜欢被催促，提醒时要温和。"
-                    rows={5}
-                  />
-                </label>
-                <button className="primary-button" type="submit" disabled={!memoryDraft.content.trim()}>
-                  <Plus size={17} />
-                  添加记忆
-                </button>
-              </form>
+              <button className="primary-button full-width" type="button" onClick={() => setIsMemoryAddOpen((open) => !open)}>
+                <Plus size={17} />
+                新增记忆
+              </button>
+              {isMemoryAddOpen && (
+                <form className="memory-form" onSubmit={handleAddMemory}>
+                  <label>
+                    作用范围
+                    <select
+                      value={memoryDraft.scope}
+                      onChange={(event) =>
+                        setMemoryDraft((current) => ({ ...current, scope: event.target.value as MemoryScope }))
+                      }
+                    >
+                      <option value="global">全局</option>
+                      <option value="companion">当前伴侣专属</option>
+                    </select>
+                  </label>
+                  <label>
+                    分类
+                    <select
+                      value={memoryDraft.category}
+                      onChange={(event) =>
+                        setMemoryDraft((current) => ({
+                          ...current,
+                          category: event.target.value as MemoryCategory,
+                        }))
+                      }
+                    >
+                      {memoryCategories.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    重要度
+                    <select
+                      value={memoryDraft.importance}
+                      onChange={(event) =>
+                        setMemoryDraft((current) => ({
+                          ...current,
+                          importance: Number(event.target.value) as MemoryImportance,
+                        }))
+                      }
+                    >
+                      {importanceOptions.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    内容
+                    <textarea
+                      value={memoryDraft.content}
+                      onChange={(event) =>
+                        setMemoryDraft((current) => ({
+                          ...current,
+                          content: event.target.value,
+                        }))
+                      }
+                      placeholder="例如：用户不喜欢被催促，提醒时要温和。"
+                      rows={4}
+                    />
+                  </label>
+                  <button className="primary-button" type="submit" disabled={!memoryDraft.content.trim()}>
+                    <Plus size={17} />
+                    添加记忆
+                  </button>
+                </form>
+              )}
             </section>
 
             <section className="workspace-panel memory-list-panel">
@@ -1764,8 +1848,7 @@ export default function App() {
                       />
                       <div className="memory-meta">
                         <PenLine size={14} />
-                        {memoryScopeLabels[memory.scope]} · {memoryCategoryLabels[memory.category]} · {memory.status} · 置信度{" "}
-                        {memory.confidence.toFixed(2)}
+                        {memoryScopeLabels[memory.scope]} · {memoryCategoryLabels[memory.category]}
                       </div>
                     </article>
                   ))}
@@ -1773,35 +1856,66 @@ export default function App() {
               )}
             </section>
           </div>
+            </div>
+          </div>
         )}
 
         {activeView === "style" && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="风格">
+            <div className="modal-panel modal-panel-wide">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Style</p>
+                  <h2>风格</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setActiveView("chat")}>
+                  关闭
+                </button>
+              </div>
           <div className="content-grid style-layout">
             <section className="workspace-panel">
               <div className="section-title">
                 <Sparkles size={18} />
-                <h3>导入前提示</h3>
+                <h3>风格工具</h3>
               </div>
-              <div className="privacy-callout">
-                <ShieldCheck size={18} />
-                <p>
-                  请只导入你有权使用、已获得必要同意，且不会侵犯他人隐私的聊天记录。导入内容将用于生成“风格参考摘要”，帮助你的虚构 AI
-                  伴侣学习语气和互动方式；它不会复刻、复活或冒充任何真实个人。P0 不会把导入内容发送给第三方模型。
-                </p>
+              <div className="composer-actions">
+                <button className="primary-button" type="button" onClick={() => setStylePanelMode("import")}>
+                  导入风格
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setStyleSummaries((current) => [createEmptyStyleSummary(), ...current]);
+                    setStylePanelMode("list");
+                  }}
+                >
+                  添加风格
+                </button>
               </div>
-              <label>
-                粘贴少量参考文本
-                <textarea
-                  value={styleImportText}
-                  onChange={(event) => setStyleImportText(event.target.value)}
-                  rows={8}
-                  placeholder="粘贴你有权使用的片段；保存后请编辑摘要字段，而不是保留原文。"
-                />
-              </label>
-              <button className="primary-button" onClick={createStyleFromImport} disabled={!styleImportText.trim()}>
-                <Plus size={17} />
-                生成本地摘要草稿
-              </button>
+              {stylePanelMode === "import" && (
+                <>
+                  <div className="privacy-callout">
+                    <ShieldCheck size={18} />
+                    <p>
+                      请只导入你有权使用、已获得必要同意，且不会侵犯他人隐私的聊天记录。导入内容只用于生成本地“风格参考摘要”，不会复刻或冒充真实个人。
+                    </p>
+                  </div>
+                  <label>
+                    粘贴少量参考文本
+                    <textarea
+                      value={styleImportText}
+                      onChange={(event) => setStyleImportText(event.target.value)}
+                      rows={6}
+                      placeholder="粘贴你有权使用的片段；保存后请编辑摘要字段，而不是保留原文。"
+                    />
+                  </label>
+                  <button className="primary-button" onClick={createStyleFromImport} disabled={!styleImportText.trim()}>
+                    <Plus size={17} />
+                    生成本地摘要草稿
+                  </button>
+                </>
+              )}
             </section>
 
             <section className="workspace-panel style-list-panel">
@@ -1890,6 +2004,8 @@ export default function App() {
                 </div>
               )}
             </section>
+          </div>
+            </div>
           </div>
         )}
       </main>

@@ -89,8 +89,6 @@ function formatCompanion(companion: CompanionProfile): string {
   const customParts = [
     companion.customPersonalityText,
     companion.responsePace,
-    companion.problemSolvingStyle,
-    companion.intimacyBoundary,
   ]
     .filter(Boolean)
     .join("；");
