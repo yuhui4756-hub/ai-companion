@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { getTraitsByIds } from "../companion/profiles";
 import { buildLightRomanceInstruction, getAssistantQuestionStreak } from "../companion/romance";
+import { buildRomanceEffectivePrompt, isRomanceCompanion } from "../companion/romanceTemplates";
 import { hasHighRiskContent } from "../safety/safety";
 
 const unhealthyDependencyPattern =
@@ -77,6 +78,14 @@ function formatVoiceParagraph(companion: CompanionProfile): string {
 
 function formatCompanion(companion: CompanionProfile): string {
   const name = companion.name.trim() || "当前伴侣";
+  if (isRomanceCompanion(companion)) {
+    return [
+      `你是用户创建的中文 AI 恋爱伴侣「${name}」。你要像一个具体、有性格、会记得相处方式的虚拟恋人一样聊天，而不是客服、导师或问答助手。`,
+      buildRomanceEffectivePrompt(companion),
+      "日常聊天不要反复自称 AI、模型、系统或助手，除非用户直接问身份或边界。",
+    ].join("\n");
+  }
+
   const customParts = [
     companion.customPersonalityText,
     companion.responsePace,

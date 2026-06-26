@@ -1,4 +1,5 @@
 import { defaultCompanions } from "../companion/profiles";
+import { buildBlendPromptSummary, getDefaultRomanceTemplate, getRomanceTemplate } from "../companion/romanceTemplates";
 import type {
   ChatMessage,
   CompanionOnboardingState,
@@ -92,8 +93,38 @@ function migrateMemory(raw: Partial<UserMemory> & Record<string, unknown>): User
 
 function dedupeCompanions(companions: CompanionProfile[]): CompanionProfile[] {
   const byId = new Map<string, CompanionProfile>();
-  [...defaultCompanions, ...companions].forEach((companion) => byId.set(companion.id, companion));
+  [...defaultCompanions, ...companions].forEach((companion) => byId.set(companion.id, normalizeCompanion(companion)));
   return [...byId.values()];
+}
+
+function normalizeCompanion(companion: CompanionProfile): CompanionProfile {
+  const isRomance = companion.primaryMode === "romance" || companion.relationshipType === "light_romance";
+  if (!isRomance) {
+    return {
+      ...companion,
+      primaryMode: companion.primaryMode ?? "legacy",
+      isLegacyCompanion: companion.isLegacyCompanion ?? true,
+      legacyRelationshipType: companion.legacyRelationshipType ?? companion.relationshipType,
+    };
+  }
+
+  const gender = companion.gender ?? (companion.genderDirection === "male" ? "male" : "female");
+  const template = getRomanceTemplate(companion.primaryRomanceTemplateId ?? companion.romanceTemplateId) ?? getDefaultRomanceTemplate(gender);
+  const blendTraitIds = companion.blendTraitIds ?? template.recommendedBlendTraitIds.slice(0, 2);
+
+  return {
+    ...companion,
+    primaryMode: "romance",
+    isLegacyCompanion: companion.isLegacyCompanion ?? false,
+    gender,
+    primaryRomanceTemplateId: companion.primaryRomanceTemplateId ?? template.id,
+    blendTraitIds,
+    promptValidationStatus: companion.promptValidationStatus ?? "valid",
+    promptValidationIssues: companion.promptValidationIssues ?? [],
+    templateName: companion.templateName ?? template.label,
+    templatePrompt: companion.templatePrompt ?? template.templatePrompt,
+    blendPromptSummary: companion.blendPromptSummary ?? buildBlendPromptSummary(blendTraitIds),
+  };
 }
 
 export function loadProviderConfig(): ModelProviderConfig {

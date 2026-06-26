@@ -462,3 +462,39 @@
 - 工作区修改文件与测试交接一致：`src/styles.css`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.3-F3 验收通过，允许提交与推送。
+
+## 2026-06-26 v0.4 恋爱陪伴主流程补充验收通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.4 高优先级补充修正中间验收。
+- 结论：通过。恋爱陪伴主流程、模板融合和自定义 prompt 校验已通过测试。
+- 阻塞问题：无。
+- 普通问题：无影响验收通过的问题。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 清空 localStorage 后首次主流程只出现“女友方向 / 男友方向”，未出现中性/不限性别主选项。
+- 女友方向 6 个模板、男友方向 6 个模板均可选择。
+- 融合特质共 8 个，可选 1-3 个；选择到 3 个后其余选项禁用。
+- 自定义 prompt 可保存正常恋爱人设；API Key/token、身份证、冒充真人、线下承诺、露骨成人、违法危险、自伤伤害、强控制依赖等 blocked 样例会阻止保存。
+- 创建后 localStorage 字段完整：`relationshipType: "light_romance"`、`primaryMode: "romance"`、`gender`、`primaryRomanceTemplateId`、`blendTraitIds`、`blendPromptSummary`、`customSystemPrompt`、`promptValidationStatus` 均落盘。
+- valid 自定义 prompt 会进入真实 Chat Completions 请求 system prompt；blocked 状态下即使本地数据被污染，也会回退模板 prompt，blocked 文本不进入请求体。
+- effective prompt 保持短自然结构，不泄漏 `localStorage`、scope、confidence、skip、风控等内部字段。
+- 旧伴侣兼容：朋友、予安、理性支持、日常、角色伴侣仍显示在兼容入口，可切换；新建恋爱伴侣与旧伴侣共存。
+- F2/F3、安全隐私、设置页、导出隐私和移动端回归通过。
+
+### 可后续优化
+
+- 导出 JSON 的 `version` 类型和值、导出文件名仍沿用 v0.3，后续建议统一更新为 v0.4，避免阶段标识混淆。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全校验和提示文案。
+- 工作区修改文件符合 v0.4 范围：`README.md`、`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`、`src/storage/localStorage.ts`、`src/types.ts`、`src/companion/promptValidation.ts`、`src/companion/romanceTemplates.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.4 验收通过，允许提交与推送。

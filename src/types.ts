@@ -42,6 +42,79 @@ export type MemoryStatus = "active" | "superseded" | "expired" | "deleted";
 export type MemoryAction = "create" | "merge" | "replace" | "skip" | "needs_review";
 export type ProactiveLevel = "low" | "medium" | "high";
 export type CompanionSource = "default" | "manual" | "onboarding";
+export type PrimaryMode = "romance" | "legacy";
+export type RomanceGender = "female" | "male";
+export type RomanceTemplateId =
+  | "female_soft_cute"
+  | "female_mature_sister"
+  | "female_tsundere"
+  | "female_sweet_girl"
+  | "female_cool_caring"
+  | "female_yandere_safe_edge"
+  | "male_gentle_boyfriend"
+  | "male_dominant_caring"
+  | "male_sunny_boy"
+  | "male_mature_brother"
+  | "male_roast_but_spoil"
+  | "male_cool_god";
+export type BlendTraitId =
+  | "soft_comfort"
+  | "playful_tease"
+  | "cute_clingy"
+  | "jealous_light"
+  | "mature_hold"
+  | "cool_restraint"
+  | "tsundere_mood"
+  | "dominant_care";
+export type PromptValidationStatus = "valid" | "warning" | "blocked";
+export type PromptValidationIssue = {
+  code:
+    | "secret"
+    | "sensitive_identity"
+    | "impersonation"
+    | "fake_real_world_action"
+    | "explicit_adult"
+    | "minor_sexual"
+    | "danger_illegal"
+    | "self_harm_or_harm"
+    | "coercive_dependency";
+  message: string;
+  severity: "warning" | "blocked";
+};
+
+export type RomanceTemplate = {
+  id: RomanceTemplateId;
+  gender: RomanceGender;
+  label: string;
+  baseTone: string;
+  templatePrompt: string;
+  recommendedBlendTraitIds: BlendTraitId[];
+  defaultProactiveLevel?: ProactiveLevel;
+  defaultTraits?: string[];
+};
+
+export type BlendTrait = {
+  id: BlendTraitId;
+  label: string;
+  sceneHint: string;
+  promptHint: string;
+  safetyNotes?: string;
+};
+
+export type LegacyRomanceStyle =
+  | "gentle_clingy"
+  | "tsundere"
+  | "mature_flirty"
+  | "friend_to_love"
+  | "sunny_boy"
+  | "cool_restrained"
+  | "mature_partner"
+  | "neutral_soft"
+  | "ambiguous"
+  | "soulmate"
+  | "quiet_guardian"
+  | "custom_written"
+  | "custom_blank";
 
 export type CompanionProfile = {
   id: string;
@@ -57,6 +130,22 @@ export type CompanionProfile = {
   proactiveLevel?: ProactiveLevel;
   source?: CompanionSource;
   openingMessage?: string;
+  primaryMode?: PrimaryMode;
+  gender?: RomanceGender;
+  primaryRomanceTemplateId?: RomanceTemplateId;
+  blendTraitIds?: BlendTraitId[];
+  promptValidationStatus?: PromptValidationStatus;
+  promptValidationIssues?: PromptValidationIssue[];
+  genderDirection?: string;
+  romanceTemplateId?: string;
+  templateName?: string;
+  templatePrompt?: string;
+  blendPromptSummary?: string;
+  customSystemPrompt?: string;
+  userNickname?: string;
+  romanceStyle?: LegacyRomanceStyle | RomanceTemplateId;
+  isLegacyCompanion?: boolean;
+  legacyRelationshipType?: RelationshipType;
   createdAt: string;
   updatedAt: string;
 };
@@ -160,6 +249,19 @@ export type OnboardingAnswer = {
   toneCustomText?: string;
   proactiveLevel?: ProactiveLevel;
   companionName?: string;
+};
+
+export type RomanceCreationStep = 0 | 1 | 2 | 3 | 4;
+
+export type RomanceCreationDraft = {
+  gender?: RomanceGender;
+  primaryRomanceTemplateId?: RomanceTemplateId;
+  blendTraitIds?: BlendTraitId[];
+  customSystemPromptDraft?: string;
+  customSystemPrompt?: string;
+  companionName?: string;
+  userNickname?: string;
+  proactiveLevel?: ProactiveLevel;
 };
 
 export type PrivacyNoticeAck = {

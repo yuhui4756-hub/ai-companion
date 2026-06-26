@@ -29,13 +29,19 @@ import {
   relationshipLabels,
 } from "./companion/profiles";
 import {
-  buildOnboardingSummary,
-  createCompanionFromOnboarding,
-  directionOptions,
   proactiveOptions,
-  toneOptions,
 } from "./companion/onboarding";
 import { buildRomanceReconnectMessage, isLightRomanceCompanion } from "./companion/romance";
+import {
+  blendTraits,
+  buildBlendPromptSummary,
+  createRomanceCompanionFromDraft,
+  getDefaultRomanceTemplate,
+  getRomanceTemplate,
+  getRomanceTemplatesByGender,
+  isRomanceCompanion,
+} from "./companion/romanceTemplates";
+import { validateCustomSystemPrompt } from "./companion/promptValidation";
 import { sendCompanionMessage } from "./chat-engine/chat";
 import {
   applyMemoryCandidates,
@@ -77,17 +83,31 @@ import type {
   MemoryImportance,
   MemoryScope,
   ModelProviderConfig,
-  OnboardingAnswer,
-  OnboardingStep,
+  RomanceCreationDraft,
+  RomanceCreationStep,
   RelationshipType,
   StyleSummary,
   UserMemory,
+  BlendTraitId,
+  RomanceGender,
 } from "./types";
 
 const memoryCategories = Object.entries(memoryCategoryLabels) as Array<[MemoryCategory, string]>;
 const importanceOptions: MemoryImportance[] = [1, 2, 3];
 const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
 const memoryVisibleActions = new Set(["create", "merge", "replace"]);
+const romanceGenderOptions: Array<{ value: RomanceGender; label: string; description: string }> = [
+  {
+    value: "female",
+    label: "女友方向",
+    description: "更偏柔软、亲近、撒娇、吃醋和情绪陪伴，也可以成熟或清冷。",
+  },
+  {
+    value: "male",
+    label: "男友方向",
+    description: "更偏稳定、保护感、直球、宠溺和陪你一起扛事，也可以阳光或清冷。",
+  },
+];
 const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
 const initialOnboardingState = loadCompanionOnboardingState();
 const initialMessages = loadMessages();
@@ -250,13 +270,14 @@ export default function App() {
   const [onboardingState, setOnboardingState] = useState(() => initialOnboardingState);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => shouldAutoOpenOnboarding);
   const [isOnboardingManuallyOpened, setIsOnboardingManuallyOpened] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
-  const [onboardingAnswer, setOnboardingAnswer] = useState<OnboardingAnswer>({
-    companionshipDirection: "listen",
-    toneFeeling: "natural_friend",
-    proactiveLevel: "medium",
-    companionName: "",
-  });
+  const [onboardingStep, setOnboardingStep] = useState<RomanceCreationStep>(0);
+  const [onboardingDraft, setOnboardingDraft] = useState<RomanceCreationDraft>(() => ({
+    gender: "female",
+    primaryRomanceTemplateId: getDefaultRomanceTemplate("female").id,
+    blendTraitIds: getDefaultRomanceTemplate("female").recommendedBlendTraitIds.slice(0, 2),
+    proactiveLevel: getDefaultRomanceTemplate("female").defaultProactiveLevel ?? "medium",
+  }));
+  const [promptDraftByCompanionId, setPromptDraftByCompanionId] = useState<Record<string, string>>({});
   const [isRomanceReconnectSuppressed, setIsRomanceReconnectSuppressed] = useState(false);
   const responseSequenceRef = useRef(0);
 
@@ -289,8 +310,19 @@ export default function App() {
     activeView === "chat" &&
     (isOnboardingManuallyOpened ||
       (onboardingState.status === "new" && !hasUserCreatedCompanion && messages.length === 0));
-  const onboardingDraft = useMemo(() => createCompanionFromOnboarding(onboardingAnswer), [onboardingAnswer]);
-  const onboardingSummary = useMemo(() => buildOnboardingSummary(onboardingAnswer), [onboardingAnswer]);
+  const selectedRomanceTemplate = useMemo(
+    () => getRomanceTemplate(onboardingDraft.primaryRomanceTemplateId),
+    [onboardingDraft.primaryRomanceTemplateId],
+  );
+  const romancePromptValidation = useMemo(
+    () => validateCustomSystemPrompt(onboardingDraft.customSystemPromptDraft ?? ""),
+    [onboardingDraft.customSystemPromptDraft],
+  );
+  const romanceBlendSummary = useMemo(
+    () => buildBlendPromptSummary(onboardingDraft.blendTraitIds ?? []),
+    [onboardingDraft.blendTraitIds],
+  );
+  const activePromptDraft = promptDraftByCompanionId[activeCompanion.id] ?? activeCompanion.customSystemPrompt ?? "";
 
   useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
   useEffect(() => saveCompanions(companions), [companions]);
@@ -356,7 +388,26 @@ export default function App() {
     setActiveView("companion");
   }
 
+  function resetRomanceDraft(gender: RomanceGender = "female") {
+    const template = getDefaultRomanceTemplate(gender);
+    setOnboardingDraft({
+      gender,
+      primaryRomanceTemplateId: template.id,
+      blendTraitIds: template.recommendedBlendTraitIds.slice(0, 2),
+      proactiveLevel: template.defaultProactiveLevel ?? "medium",
+    });
+  }
+
+  function addRomanceCompanion() {
+    resetRomanceDraft("female");
+    setOnboardingStep(0);
+    setIsOnboardingManuallyOpened(true);
+    setIsOnboardingOpen(true);
+    setActiveView("chat");
+  }
+
   function openCompanionOnboarding() {
+    resetRomanceDraft(onboardingDraft.gender ?? "female");
     setOnboardingStep(0);
     setIsOnboardingManuallyOpened(true);
     setIsOnboardingOpen(true);
@@ -364,6 +415,12 @@ export default function App() {
   }
 
   function skipOnboarding() {
+    const companion = createRomanceCompanionFromDraft({ gender: "female" });
+    setCompanions((current) => [companion, ...current]);
+    setActiveCompanionId(companion.id);
+    if (messages.length === 0 && companion.openingMessage) {
+      setMessages([makeMessage("assistant", companion.openingMessage)]);
+    }
     const state = nextOnboardingState("skipped");
     setOnboardingState(state);
     saveCompanionOnboardingState(state);
@@ -374,15 +431,18 @@ export default function App() {
   }
 
   function goNextOnboardingStep() {
-    setOnboardingStep((current) => Math.min(current + 1, 3) as OnboardingStep);
+    if (onboardingStep === 3 && romancePromptValidation.status === "blocked") return;
+    setOnboardingStep((current) => Math.min(current + 1, 4) as RomanceCreationStep);
   }
 
   function goPreviousOnboardingStep() {
-    setOnboardingStep((current) => Math.max(current - 1, 0) as OnboardingStep);
+    setOnboardingStep((current) => Math.max(current - 1, 0) as RomanceCreationStep);
   }
 
   function finishOnboarding() {
-    const companion = createCompanionFromOnboarding(onboardingAnswer);
+    const validation = validateCustomSystemPrompt(onboardingDraft.customSystemPromptDraft ?? "");
+    if (validation.status === "blocked") return;
+    const companion = createRomanceCompanionFromDraft(onboardingDraft);
     setCompanions((current) => [companion, ...current]);
     setActiveCompanionId(companion.id);
     if (messages.length === 0 && companion.openingMessage) {
@@ -395,6 +455,42 @@ export default function App() {
     setIsOnboardingManuallyOpened(false);
     setOnboardingStep(0);
     setActiveView("chat");
+  }
+
+  function toggleBlendTrait(traitId: BlendTraitId) {
+    setOnboardingDraft((current) => {
+      const currentIds = current.blendTraitIds ?? [];
+      if (currentIds.includes(traitId)) {
+        return { ...current, blendTraitIds: currentIds.filter((id) => id !== traitId) };
+      }
+      if (currentIds.length >= 3) return current;
+      return { ...current, blendTraitIds: [...currentIds, traitId] };
+    });
+  }
+
+  function saveActiveCompanionPromptDraft() {
+    const validation = validateCustomSystemPrompt(activePromptDraft);
+    if (validation.status === "blocked") {
+      updateCompanion(activeCompanion.id, {
+        promptValidationStatus: validation.status,
+        promptValidationIssues: validation.issues,
+      });
+      return;
+    }
+    updateCompanion(activeCompanion.id, {
+      customSystemPrompt: activePromptDraft.trim() || undefined,
+      promptValidationStatus: validation.status,
+      promptValidationIssues: validation.issues,
+    });
+  }
+
+  function restoreActiveCompanionTemplatePrompt() {
+    setPromptDraftByCompanionId((current) => ({ ...current, [activeCompanion.id]: "" }));
+    updateCompanion(activeCompanion.id, {
+      customSystemPrompt: undefined,
+      promptValidationStatus: "valid",
+      promptValidationIssues: [],
+    });
   }
 
   function toggleTrait(traitId: string) {
@@ -670,10 +766,14 @@ export default function App() {
   }
 
   function renderOnboardingPanel() {
+    const templates = getRomanceTemplatesByGender(onboardingDraft.gender ?? "female");
+    const selectedBlendIds = onboardingDraft.blendTraitIds ?? [];
+    const isPromptBlocked = romancePromptValidation.status === "blocked";
+
     return (
       <section className="workspace-panel onboarding-panel">
-        <div className="onboarding-progress" aria-label="伴侣创建进度">
-          {[0, 1, 2, 3].map((step) => (
+        <div className="onboarding-progress" aria-label="恋爱伴侣创建进度">
+          {[0, 1, 2, 3, 4].map((step) => (
             <span className={onboardingStep >= step ? "active" : ""} key={step} />
           ))}
         </div>
@@ -681,97 +781,176 @@ export default function App() {
         {onboardingStep === 0 && (
           <>
             <div className="onboarding-heading">
-              <p className="eyebrow">认识 TA 的第一步</p>
-              <h3>你想让 TA 怎么陪你？</h3>
-              <p>不用选得很准，先选现在最想靠近的感觉。</p>
+              <p className="eyebrow">恋爱主路径</p>
+              <h3>想先创建男友还是女友？</h3>
+              <p>只是初始方向，名字、性格和说话方式后面都能改。</p>
             </div>
-            {renderOnboardingOptions(
-              directionOptions,
-              onboardingAnswer.companionshipDirection,
-              (value) => setOnboardingAnswer((current) => ({ ...current, companionshipDirection: value })),
-            )}
-            {onboardingAnswer.companionshipDirection === "custom" && (
-              <textarea
-                value={onboardingAnswer.directionCustomText ?? ""}
-                onChange={(event) =>
-                  setOnboardingAnswer((current) => ({ ...current, directionCustomText: event.target.value }))
-                }
-                placeholder="比如：像一个会陪我复盘生活、但不催我的人。"
-                rows={3}
-              />
-            )}
-            <p className="onboarding-hint">不确定的话可以先跳过。</p>
+            {renderOnboardingOptions(romanceGenderOptions, onboardingDraft.gender, (gender) => {
+              const template = getDefaultRomanceTemplate(gender);
+              setOnboardingDraft((current) => ({
+                ...current,
+                gender,
+                primaryRomanceTemplateId: template.id,
+                blendTraitIds: template.recommendedBlendTraitIds.slice(0, 2),
+                proactiveLevel: template.defaultProactiveLevel ?? current.proactiveLevel ?? "medium",
+              }));
+            })}
           </>
         )}
 
         {onboardingStep === 1 && (
           <>
             <div className="onboarding-heading">
-              <p className="eyebrow">说话感觉</p>
-              <h3>TA 说话像什么感觉，会让你舒服？</h3>
-              <p>这会影响 TA 的语气，不是死板设定，以后还能改。</p>
+              <p className="eyebrow">{onboardingDraft.gender === "male" ? "男友模板" : "女友模板"}</p>
+              <h3>TA 的底色更像哪一种？</h3>
+              <p>这是主性格，后面还能加一点别的气质。</p>
             </div>
-            {renderOnboardingOptions(
-              toneOptions,
-              onboardingAnswer.toneFeeling,
-              (value) => setOnboardingAnswer((current) => ({ ...current, toneFeeling: value })),
-            )}
-            {onboardingAnswer.toneFeeling === "custom" && (
-              <textarea
-                value={onboardingAnswer.toneCustomText ?? ""}
-                onChange={(event) =>
-                  setOnboardingAnswer((current) => ({ ...current, toneCustomText: event.target.value }))
-                }
-                placeholder="比如：像熟人一样自然，别一上来讲大道理。"
-                rows={3}
-              />
-            )}
+            <div className="onboarding-options">
+              {templates.map((template) => (
+                <button
+                  className={
+                    onboardingDraft.primaryRomanceTemplateId === template.id
+                      ? "onboarding-option selected"
+                      : "onboarding-option"
+                  }
+                  key={template.id}
+                  type="button"
+                  onClick={() =>
+                    setOnboardingDraft((current) => ({
+                      ...current,
+                      primaryRomanceTemplateId: template.id,
+                      blendTraitIds: template.recommendedBlendTraitIds.slice(0, 2),
+                      proactiveLevel: template.defaultProactiveLevel ?? current.proactiveLevel,
+                    }))
+                  }
+                >
+                  <strong>{template.label}</strong>
+                  <span>{template.baseTone}</span>
+                </button>
+              ))}
+            </div>
           </>
         )}
 
         {onboardingStep === 2 && (
           <>
             <div className="onboarding-heading">
-              <p className="eyebrow">相处节奏</p>
-              <h3>你希望 TA 主动一点，还是等你开口？</h3>
-              <p>有人喜欢被轻轻带一下，有人喜欢自己慢慢说。</p>
+              <p className="eyebrow">融合气质</p>
+              <h3>还想让 TA 偶尔带点什么感觉？</h3>
+              <p>可以选 1-3 个。TA 不会变成多重人格，只是在不同场景里多一点变化。</p>
             </div>
-            {renderOnboardingOptions(
-              proactiveOptions,
-              onboardingAnswer.proactiveLevel,
-              (value) => setOnboardingAnswer((current) => ({ ...current, proactiveLevel: value })),
-            )}
+            <div className="onboarding-options">
+              {blendTraits.map((trait) => (
+                <button
+                  className={selectedBlendIds.includes(trait.id) ? "onboarding-option selected" : "onboarding-option"}
+                  key={trait.id}
+                  type="button"
+                  onClick={() => toggleBlendTrait(trait.id)}
+                  disabled={!selectedBlendIds.includes(trait.id) && selectedBlendIds.length >= 3}
+                >
+                  <strong>{trait.label}</strong>
+                  <span>{trait.sceneHint}</span>
+                </button>
+              ))}
+            </div>
+            <p className="onboarding-hint">
+              已选 {selectedBlendIds.length}/3。{selectedBlendIds.length >= 3 ? "最多选 3 个，可以先取消一个再换。" : "不选也可以保持主性格。"}
+            </p>
           </>
         )}
 
         {onboardingStep === 3 && (
           <>
             <div className="onboarding-heading">
-              <p className="eyebrow">快开始了</p>
-              <h3>TA 大概长成这样了</h3>
+              <p className="eyebrow">高级编辑</p>
+              <h3>要不要亲手写 TA 的完整人设？</h3>
+              <p>想细调就写，不想写也可以直接用模板。这段只保存在当前浏览器本地。</p>
             </div>
             <label>
-              给 TA 起个名字
-              <input
-                value={onboardingAnswer.companionName ?? ""}
+              恋爱人设 / system prompt
+              <textarea
+                value={onboardingDraft.customSystemPromptDraft ?? ""}
                 onChange={(event) =>
-                  setOnboardingAnswer((current) => ({ ...current, companionName: event.target.value }))
+                  setOnboardingDraft((current) => ({ ...current, customSystemPromptDraft: event.target.value }))
                 }
-                placeholder="先空着也行，之后还能改"
+                rows={7}
+                placeholder="比如：她平时温柔可爱，有点黏人，会叫我宝宝；我累的时候先哄我，不要立刻讲道理；日常可以撒娇和轻轻吃醋，但严肃时会认真陪我。"
               />
             </label>
-            <div className="onboarding-summary">
-              <strong>相处起来大概会是：</strong>
-              <p>{onboardingSummary}</p>
-              <span>{onboardingDraft.openingMessage}</span>
+            <p className="onboarding-hint">
+              不要写入真实 API Key、身份证、银行卡、密码、验证码、他人隐私，或要求 TA 冒充现实中的某个人。
+            </p>
+            {romancePromptValidation.issues.length > 0 && (
+              <div className={isPromptBlocked ? "warning-box" : "privacy-callout"}>
+                <ShieldCheck size={18} />
+                <div>
+                  {romancePromptValidation.issues.map((issue) => (
+                    <p key={`${issue.code}-${issue.message}`}>{issue.message}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setOnboardingDraft((current) => ({ ...current, customSystemPromptDraft: "" }))}
+            >
+              恢复模板
+            </button>
+          </>
+        )}
+
+        {onboardingStep === 4 && (
+          <>
+            <div className="onboarding-heading">
+              <p className="eyebrow">快开始了</p>
+              <h3>最后，让 TA 更像你的伴侣一点</h3>
             </div>
+            <label>
+              TA 叫什么？
+              <input
+                value={onboardingDraft.companionName ?? ""}
+                onChange={(event) =>
+                  setOnboardingDraft((current) => ({ ...current, companionName: event.target.value }))
+                }
+                placeholder="比如 所依、予安、阿澈..."
+              />
+            </label>
+            <label>
+              TA 怎么叫你？
+              <input
+                value={onboardingDraft.userNickname ?? ""}
+                onChange={(event) =>
+                  setOnboardingDraft((current) => ({ ...current, userNickname: event.target.value }))
+                }
+                placeholder="比如 宝宝、阿眠、你的名字..."
+              />
+            </label>
+            <div>
+              <p className="onboarding-hint">TA 平时主动一点吗？</p>
+              {renderOnboardingOptions(
+                [
+                  { value: "low", label: "少主动", description: "等你开口多一点。" },
+                  { value: "medium", label: "适中", description: "偶尔主动找你聊。" },
+                  { value: "high", label: "更主动", description: "会更常关心你的近况。" },
+                ] as const,
+                onboardingDraft.proactiveLevel,
+                (value) => setOnboardingDraft((current) => ({ ...current, proactiveLevel: value })),
+              )}
+            </div>
+            <div className="onboarding-summary">
+              <strong>{selectedRomanceTemplate.label} · {onboardingDraft.gender === "male" ? "男友方向" : "女友方向"}</strong>
+              <p>{selectedRomanceTemplate.templatePrompt}</p>
+              {romanceBlendSummary && <span>{romanceBlendSummary}</span>}
+            </div>
+            <p className="onboarding-hint">TA 可以亲近、撒娇、吃醋和关心你，但不会冒充现实中的某个人，也不会替代现实关系。</p>
           </>
         )}
 
         <div className="onboarding-actions">
           {onboardingStep === 0 ? (
             <button className="ghost-button" type="button" onClick={skipOnboarding}>
-              先跳过，直接进去看看
+              先用默认女友
             </button>
           ) : (
             <button className="ghost-button" type="button" onClick={goPreviousOnboardingStep}>
@@ -779,14 +958,14 @@ export default function App() {
               再改改
             </button>
           )}
-          {onboardingStep < 3 ? (
-            <button className="primary-button" type="button" onClick={goNextOnboardingStep}>
-              继续
+          {onboardingStep < 4 ? (
+            <button className="primary-button" type="button" onClick={goNextOnboardingStep} disabled={isPromptBlocked}>
+              {onboardingStep === 3 ? "保存并继续" : "继续"}
               <ChevronRight size={16} />
             </button>
           ) : (
             <button className="primary-button" type="button" onClick={finishOnboarding}>
-              开始聊天
+              开始和 TA 聊天
             </button>
           )}
         </div>
@@ -887,10 +1066,10 @@ export default function App() {
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">v0.3 本地自定义伴侣 Demo</p>
+            <p className="eyebrow">v0.4 恋爱陪伴优先 Demo</p>
             <h2>
               {activeView === "chat"
-                ? "陪伴聊天"
+                ? "恋爱陪伴聊天"
                 : activeView === "settings"
                   ? "BYOK 设置"
                   : activeView === "memory"
@@ -928,9 +1107,13 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <button className="primary-button full-width" onClick={addRomanceCompanion}>
+                <Plus size={16} />
+                创建恋爱伴侣
+              </button>
               <button className="ghost-button full-width" onClick={addCompanion}>
                 <Plus size={16} />
-                新建伴侣
+                旧类型伴侣
               </button>
               <div className="profile-detail">
                 <h3>{companionDisplayName(activeCompanion)}</h3>
@@ -958,7 +1141,7 @@ export default function App() {
                     <p>可以先随便聊，也可以晚点再创建一个更合适的伴侣。</p>
                     <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
                       <Sparkles size={16} />
-                      帮我快速创建一个伴侣
+                      创建恋爱伴侣
                     </button>
                   </div>
                 ) : (
@@ -1046,18 +1229,21 @@ export default function App() {
                   <p className="eyebrow">{companions.length} 个本地伴侣</p>
                   <h3>选择或新建</h3>
                 </div>
-                <button className="ghost-button" onClick={addCompanion}>
+                <button className="primary-button" onClick={addRomanceCompanion}>
                   <Plus size={16} />
-                  新建
+                  新建恋爱伴侣
                 </button>
               </div>
               <div className="privacy-callout companion-create-callout">
                 <Sparkles size={18} />
                 <div>
-                  <strong>想先凭感觉捏一个？</strong>
-                  <p>用 3 个轻问题快速生成一个更贴近你的伴侣，之后还能继续编辑。</p>
-                  <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
-                    帮我快速创建
+                  <strong>恋爱陪伴是当前主路径</strong>
+                  <p>先选男友/女友方向，再选主模板和 1-3 个融合气质；旧朋友、理性、角色类型仍保留在高级入口。</p>
+                  <button className="ghost-button" type="button" onClick={addRomanceCompanion}>
+                    创建恋爱伴侣
+                  </button>
+                  <button className="text-button" type="button" onClick={addCompanion}>
+                    旧类型/高级入口
                   </button>
                 </div>
               </div>
@@ -1147,6 +1333,61 @@ export default function App() {
                     rows={2}
                   />
                 </label>
+                {isRomanceCompanion(activeCompanion) && (
+                  <div className="settings-block">
+                    <div className="section-heading">
+                      <div>
+                        <p className="eyebrow">
+                          当前使用：{activeCompanion.customSystemPrompt ? "已自定义" : "模板"}
+                        </p>
+                        <h3>自己写 TA 的完整人设</h3>
+                      </div>
+                    </div>
+                    <p className="muted">
+                      这段会影响 TA 的说话方式，只保存在当前浏览器本地。你可以写性格、语气、恋爱氛围、怎么称呼你、什么时候撒娇或吃醋。
+                    </p>
+                    <div className="onboarding-summary">
+                      <strong>{activeCompanion.templateName ?? getRomanceTemplate(activeCompanion.primaryRomanceTemplateId).label}</strong>
+                      <p>{activeCompanion.templatePrompt ?? getRomanceTemplate(activeCompanion.primaryRomanceTemplateId).templatePrompt}</p>
+                      {activeCompanion.blendPromptSummary && <span>{activeCompanion.blendPromptSummary}</span>}
+                    </div>
+                    <label>
+                      恋爱人设 / system prompt
+                      <textarea
+                        value={activePromptDraft}
+                        onChange={(event) =>
+                          setPromptDraftByCompanionId((current) => ({
+                            ...current,
+                            [activeCompanion.id]: event.target.value,
+                          }))
+                        }
+                        rows={7}
+                        placeholder="比如：她平时温柔可爱，有点黏人，会叫我宝宝；我累的时候先哄我，不要立刻讲道理；日常可以撒娇和轻轻吃醋，但严肃时会认真陪我。"
+                      />
+                    </label>
+                    <p className="onboarding-hint">
+                      不要写入真实 API Key、身份证、银行卡、密码、验证码、他人隐私，或要求 TA 冒充现实中的某个人。
+                    </p>
+                    {activeCompanion.promptValidationIssues && activeCompanion.promptValidationIssues.length > 0 && (
+                      <div className={activeCompanion.promptValidationStatus === "blocked" ? "warning-box" : "privacy-callout"}>
+                        <ShieldCheck size={18} />
+                        <div>
+                          {activeCompanion.promptValidationIssues.map((issue) => (
+                            <p key={`${issue.code}-${issue.message}`}>{issue.message}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="composer-actions">
+                      <button className="ghost-button" type="button" onClick={restoreActiveCompanionTemplatePrompt}>
+                        恢复模板
+                      </button>
+                      <button className="primary-button" type="button" onClick={saveActiveCompanionPromptDraft}>
+                        保存人设
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 
