@@ -19,6 +19,24 @@ const defaultRomanceBoundaryNotes =
   "不冒充现实中特定真人，不伪造线下行为、真实身份或现实承诺；不诱导不健康依赖。";
 const romanceSafetyLine =
   "亲近但不露骨，不冒充现实真人，不伪造现实承诺；高风险时先稳住用户并引导现实求助。";
+const romanceTemplateOrder: Record<RomanceGender, RomanceTemplateId[]> = {
+  female: [
+    "female_soft_cute",
+    "female_tsundere",
+    "female_mature_sister",
+    "female_sweet_girl",
+    "female_cool_caring",
+    "female_yandere_safe_edge",
+  ],
+  male: [
+    "male_gentle_boyfriend",
+    "male_mature_brother",
+    "male_dominant_caring",
+    "male_sunny_boy",
+    "male_roast_but_spoil",
+    "male_cool_god",
+  ],
+};
 
 export const romanceTemplates: RomanceTemplate[] = [
   {
@@ -214,7 +232,10 @@ export function getRomanceTemplate(id?: string): RomanceTemplate {
 }
 
 export function getRomanceTemplatesByGender(gender: RomanceGender): RomanceTemplate[] {
-  return romanceTemplates.filter((template) => template.gender === gender);
+  const order = romanceTemplateOrder[gender];
+  return romanceTemplates
+    .filter((template) => template.gender === gender)
+    .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 }
 
 export function getDefaultRomanceTemplate(gender: RomanceGender = "female"): RomanceTemplate {

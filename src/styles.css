@@ -353,6 +353,12 @@ button:disabled {
   min-width: 0;
 }
 
+.companion-list-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
 .companion-card {
   display: grid;
   gap: 5px;
@@ -391,6 +397,27 @@ button:disabled {
   color: #607681;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.companion-visibility-button {
+  justify-self: start;
+  color: #526d78;
+}
+
+.legacy-companion-section {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e1e8ec;
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.legacy-list {
+  padding-top: 2px;
 }
 
 .full-width {

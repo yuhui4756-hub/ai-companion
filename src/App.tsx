@@ -301,6 +301,8 @@ export default function App() {
     if (memory.scope === "companion" && memory.companionId !== activeCompanion.id) return false;
     return memory.status !== "deleted";
   });
+  const mainCompanions = companions.filter((companion) => isRomanceCompanion(companion) || companion.showInMainList);
+  const hiddenCompanions = companions.filter((companion) => !mainCompanions.some((profile) => profile.id === companion.id));
   const hasUserCreatedCompanion = useMemo(
     () => companions.some((companion) => companion.source !== "default" && !isDefaultCompanionId(companion.id)),
     [companions],
@@ -333,10 +335,10 @@ export default function App() {
     responseSequenceRef.current += 1;
     setIsSending(false);
     setIsAssistantTyping(false);
-    setIsRomanceReconnectSuppressed(false);
   }, [activeCompanion.id]);
   useEffect(() => {
     if (activeView !== "chat" || shouldShowOnboarding || isSending || isAssistantTyping || isRomanceReconnectSuppressed) return;
+    if (messages.length === 0) return;
     const reconnectMessage = buildRomanceReconnectMessage(activeCompanion, messages);
     if (!reconnectMessage) return;
     setMessages((current) => {
@@ -383,7 +385,7 @@ export default function App() {
 
   function addCompanion() {
     const companion = newCompanion();
-    setCompanions((current) => [{ ...companion, source: "manual" }, ...current]);
+    setCompanions((current) => [{ ...companion, source: "manual", showInMainList: false }, ...current]);
     setActiveCompanionId(companion.id);
     setActiveView("companion");
   }
@@ -418,9 +420,7 @@ export default function App() {
     const companion = createRomanceCompanionFromDraft({ gender: "female" });
     setCompanions((current) => [companion, ...current]);
     setActiveCompanionId(companion.id);
-    if (messages.length === 0 && companion.openingMessage) {
-      setMessages([makeMessage("assistant", companion.openingMessage)]);
-    }
+    setIsRomanceReconnectSuppressed(true);
     const state = nextOnboardingState("skipped");
     setOnboardingState(state);
     saveCompanionOnboardingState(state);
@@ -445,9 +445,7 @@ export default function App() {
     const companion = createRomanceCompanionFromDraft(onboardingDraft);
     setCompanions((current) => [companion, ...current]);
     setActiveCompanionId(companion.id);
-    if (messages.length === 0 && companion.openingMessage) {
-      setMessages([makeMessage("assistant", companion.openingMessage)]);
-    }
+    setIsRomanceReconnectSuppressed(true);
     const state = nextOnboardingState("completed");
     setOnboardingState(state);
     saveCompanionOnboardingState(state);
@@ -491,6 +489,10 @@ export default function App() {
       promptValidationStatus: "valid",
       promptValidationIssues: [],
     });
+  }
+
+  function setCompanionMainListVisibility(id: string, showInMainList: boolean) {
+    updateCompanion(id, { showInMainList });
   }
 
   function toggleTrait(traitId: string) {
@@ -765,6 +767,35 @@ export default function App() {
     );
   }
 
+  function renderCompanionCards(profiles: CompanionProfile[], allowVisibilityToggle = false) {
+    return profiles.map((profile) => (
+      <article className="companion-list-item" key={profile.id}>
+        <button
+          className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
+          onClick={() => setActiveCompanionId(profile.id)}
+          type="button"
+        >
+          <span>{relationshipLabels[profile.relationshipType]}</span>
+          <strong>{companionDisplayName(profile)}</strong>
+          <small>
+            {profile.customPersonalityText ||
+              getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") ||
+              "未选择特质"}
+          </small>
+        </button>
+        {allowVisibilityToggle && !isRomanceCompanion(profile) && (
+          <button
+            className="text-button companion-visibility-button"
+            type="button"
+            onClick={() => setCompanionMainListVisibility(profile.id, !(profile.showInMainList ?? false))}
+          >
+            {profile.showInMainList ? "从主列表隐藏" : "显示到主列表"}
+          </button>
+        )}
+      </article>
+    ));
+  }
+
   function renderOnboardingPanel() {
     const templates = getRomanceTemplatesByGender(onboardingDraft.gender ?? "female");
     const selectedBlendIds = onboardingDraft.blendTraitIds ?? [];
@@ -878,7 +909,7 @@ export default function App() {
               />
             </label>
             <p className="onboarding-hint">
-              不要写入真实 API Key、身份证、银行卡、密码、验证码、他人隐私，或要求 TA 冒充现实中的某个人。
+              保存前会做本地边界检查。别放真实密钥、证件号或他人隐私；更多说明可看用户须知。
             </p>
             {romancePromptValidation.issues.length > 0 && (
               <div className={isPromptBlocked ? "warning-box" : "privacy-callout"}>
@@ -947,6 +978,9 @@ export default function App() {
           </>
         )}
 
+        <button className="text-button" type="button" onClick={openPrivacyNotice}>
+          查看用户须知
+        </button>
         <div className="onboarding-actions">
           {onboardingStep === 0 ? (
             <button className="ghost-button" type="button" onClick={skipOnboarding}>
@@ -1036,19 +1070,20 @@ export default function App() {
             {isConfigured ? "配置仅保存在本机浏览器" : "先到设置填写接口配置"}
           </div>
           <button className="text-button" type="button" onClick={openPrivacyNotice}>
-            查看本地隐私说明
+            查看用户须知
           </button>
         </section>
       </aside>
 
       <main className="main">
         {isPrivacyNoticeOpen && (
-          <section className="privacy-notice" aria-label="本地隐私提示">
+          <section className="privacy-notice" aria-label="用户须知">
             <div>
-              <strong>本地隐私提示</strong>
+              <strong>用户须知</strong>
               <p>
-                当前 Demo 没有后端服务器。你的 API Key、聊天记录、长期记忆、伴侣配置和风格摘要会保存在当前浏览器本地；
-                换浏览器或清理浏览器数据可能会丢失。聊天时，浏览器会用你填写的接口直接请求模型服务商。
+                这是本地 BYOK 的 AI 恋爱伴侣 Demo。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器；
+                聊天时浏览器会用你填写的接口请求模型服务商。TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺。
+                敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。
               </p>
             </div>
             <div className="privacy-notice-actions">
@@ -1066,7 +1101,7 @@ export default function App() {
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">v0.4 恋爱陪伴优先 Demo</p>
+            <p className="eyebrow">v0.4.1 恋爱陪伴优先 Demo</p>
             <h2>
               {activeView === "chat"
                 ? "恋爱陪伴聊天"
@@ -1095,25 +1130,15 @@ export default function App() {
                 <h3>当前伴侣</h3>
               </div>
               <div className="companion-list">
-                {companions.map((profile) => (
-                  <button
-                    key={profile.id}
-                    className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
-                    onClick={() => setActiveCompanionId(profile.id)}
-                  >
-                    <span>{relationshipLabels[profile.relationshipType]}</span>
-                    <strong>{companionDisplayName(profile)}</strong>
-                    <small>{getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") || "未选择特质"}</small>
-                  </button>
-                ))}
+                {renderCompanionCards(mainCompanions)}
               </div>
               <button className="primary-button full-width" onClick={addRomanceCompanion}>
                 <Plus size={16} />
                 创建恋爱伴侣
               </button>
-              <button className="ghost-button full-width" onClick={addCompanion}>
-                <Plus size={16} />
-                旧类型伴侣
+              <button className="ghost-button full-width" onClick={() => setActiveView("companion")}>
+                <UserRoundCog size={16} />
+                更多/兼容旧伴侣
               </button>
               <div className="profile-detail">
                 <h3>{companionDisplayName(activeCompanion)}</h3>
@@ -1137,8 +1162,8 @@ export default function App() {
                 {messages.length === 0 ? (
                   <div className="empty-state">
                     <Brain size={30} />
-                    <h3>还没想好也没关系</h3>
-                    <p>可以先随便聊，也可以晚点再创建一个更合适的伴侣。</p>
+                    <h3>TA 已经准备好了</h3>
+                    <p>聊天会从你开口开始。想换一个人设，也可以先创建新的恋爱伴侣。</p>
                     <button className="ghost-button" type="button" onClick={openCompanionOnboarding}>
                       <Sparkles size={16} />
                       创建恋爱伴侣
@@ -1226,8 +1251,8 @@ export default function App() {
             <section className="workspace-panel">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">{companions.length} 个本地伴侣</p>
-                  <h3>选择或新建</h3>
+                  <p className="eyebrow">{mainCompanions.length} 个主列表伴侣</p>
+                  <h3>恋爱伴侣</h3>
                 </div>
                 <button className="primary-button" onClick={addRomanceCompanion}>
                   <Plus size={16} />
@@ -1238,27 +1263,35 @@ export default function App() {
                 <Sparkles size={18} />
                 <div>
                   <strong>恋爱陪伴是当前主路径</strong>
-                  <p>先选男友/女友方向，再选主模板和 1-3 个融合气质；旧朋友、理性、角色类型仍保留在高级入口。</p>
+                  <p>先选男友/女友方向，再选主模板和 1-3 个融合气质。旧类型收在兼容入口里，想用时再打开。</p>
                   <button className="ghost-button" type="button" onClick={addRomanceCompanion}>
                     创建恋爱伴侣
                   </button>
                   <button className="text-button" type="button" onClick={addCompanion}>
-                    旧类型/高级入口
+                    新建旧类型/实验入口
                   </button>
                 </div>
               </div>
               <div className="companion-list">
-                {companions.map((profile) => (
-                  <button
-                    key={profile.id}
-                    className={profile.id === activeCompanion.id ? "companion-card selected" : "companion-card"}
-                    onClick={() => setActiveCompanionId(profile.id)}
-                  >
-                    <span>{relationshipLabels[profile.relationshipType]}</span>
-                    <strong>{companionDisplayName(profile)}</strong>
-                    <small>{profile.customPersonalityText || "未填写自定义性格"}</small>
-                  </button>
-                ))}
+                {renderCompanionCards(mainCompanions, true)}
+              </div>
+              <div className="legacy-companion-section">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <p className="eyebrow">{hiddenCompanions.length} 个兼容项</p>
+                    <h3>更多/兼容旧伴侣</h3>
+                  </div>
+                </div>
+                <p className="muted">
+                  朋友、理性支持、日常、角色等旧伴侣不会打扰主列表，但仍然可以访问、聊天和编辑。
+                </p>
+                {hiddenCompanions.length === 0 ? (
+                  <p className="muted">没有隐藏的旧伴侣。</p>
+                ) : (
+                  <div className="companion-list legacy-list">
+                    {renderCompanionCards(hiddenCompanions, true)}
+                  </div>
+                )}
               </div>
             </section>
 
@@ -1366,7 +1399,7 @@ export default function App() {
                       />
                     </label>
                     <p className="onboarding-hint">
-                      不要写入真实 API Key、身份证、银行卡、密码、验证码、他人隐私，或要求 TA 冒充现实中的某个人。
+                      保存前会做本地边界检查。别放真实密钥、证件号、他人隐私或现实冒充要求。
                     </p>
                     {activeCompanion.promptValidationIssues && activeCompanion.promptValidationIssues.length > 0 && (
                       <div className={activeCompanion.promptValidationStatus === "blocked" ? "warning-box" : "privacy-callout"}>
@@ -1510,7 +1543,7 @@ export default function App() {
               </div>
               <button className="ghost-button" type="button" onClick={openPrivacyNotice}>
                 <ShieldCheck size={17} />
-                查看本地隐私说明
+                查看用户须知
               </button>
               <button className="primary-button" type="submit">
                 <Save size={17} />

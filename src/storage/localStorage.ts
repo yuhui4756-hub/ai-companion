@@ -105,6 +105,7 @@ function normalizeCompanion(companion: CompanionProfile): CompanionProfile {
       primaryMode: companion.primaryMode ?? "legacy",
       isLegacyCompanion: companion.isLegacyCompanion ?? true,
       legacyRelationshipType: companion.legacyRelationshipType ?? companion.relationshipType,
+      showInMainList: companion.showInMainList ?? false,
     };
   }
 
@@ -116,6 +117,7 @@ function normalizeCompanion(companion: CompanionProfile): CompanionProfile {
     ...companion,
     primaryMode: "romance",
     isLegacyCompanion: companion.isLegacyCompanion ?? false,
+    showInMainList: companion.showInMainList ?? true,
     gender,
     primaryRomanceTemplateId: companion.primaryRomanceTemplateId ?? template.id,
     blendTraitIds,
@@ -166,8 +168,8 @@ export function loadActiveCompanionId(): string {
   const activeId = readJSON<string | null>(STORAGE_KEYS.activeCompanionId, null);
   if (activeId) return activeId;
 
-  const legacyType = readJSON<LegacyCompanionType>(STORAGE_KEYS.companion, "friend");
-  return legacyCompanionMap[legacyType] ?? "companion-friend";
+  const legacyType = readJSON<LegacyCompanionType>(STORAGE_KEYS.companion, "romantic");
+  return legacyCompanionMap[legacyType] ?? "companion-romance";
 }
 
 export function saveActiveCompanionId(id: string): void {
@@ -213,7 +215,7 @@ export function buildLocalDataExport(params: {
 }): LocalDataExport {
   const { apiKey: _apiKey, ...providerConfigWithoutApiKey } = params.providerConfig;
   return {
-    version: "v0.3",
+    version: "v0.4.1",
     exportedAt: nowISO(),
     providerConfigWithoutApiKey: {
       ...providerConfigWithoutApiKey,

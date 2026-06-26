@@ -146,6 +146,7 @@ export type CompanionProfile = {
   romanceStyle?: LegacyRomanceStyle | RomanceTemplateId;
   isLegacyCompanion?: boolean;
   legacyRelationshipType?: RelationshipType;
+  showInMainList?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -207,7 +208,7 @@ export type ModelProviderConfig = {
 };
 
 export type LocalDataExport = {
-  version: "v0.3";
+  version: string;
   exportedAt: string;
   providerConfigWithoutApiKey: Omit<ModelProviderConfig, "apiKey"> & { apiKeyRemoved: true };
   companions: CompanionProfile[];

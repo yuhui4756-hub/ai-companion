@@ -498,3 +498,39 @@
 - 工作区修改文件符合 v0.4 范围：`README.md`、`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/companion/profiles.ts`、`src/storage/localStorage.ts`、`src/types.ts`、`src/companion/promptValidation.ts`、`src/companion/romanceTemplates.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.4 验收通过，允许提交与推送。
+
+## 2026-06-26 v0.4.1 恋爱陪伴主流程收口通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.4.1 恋爱陪伴主流程收口小修中间验收。
+- 结论：通过。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- 清空 localStorage 后首屏显示 `v0.4.1 恋爱陪伴优先 Demo`、用户须知、男友/女友创建主流程；未出现旧五类平铺。
+- 用户须知集中说明本地保存、API Key、聊天请求、AI 伴侣透明身份、敏感信息不保存、自定义人设边界；入口在侧栏、创建流程和设置页可见。
+- “先用默认女友”后，`ai-companion:messages` 为空，聊天区显示“TA 已经准备好了”，未自动插入 assistant 开场消息，也未立刻补本地续聊。
+- 主聊天列表默认只突出恋爱伴侣；旧朋友/理性/日常/角色在“更多/兼容旧伴侣”里可显示到主列表或隐藏，并写入 `showInMainList`。
+- 创建流程保持多步骤低信息密度：方向选择、模板选择、融合气质、自定义设定、名字称呼/主动程度。
+- 女友模板前三为温柔可爱、傲娇、御姐；男友模板前三为温柔男友、成熟哥哥、霸总型。
+- 自定义 prompt blocked 文案改为温和提示，valid 文本仍可保存。
+- F2/F3、v0.4 能力、安全隐私、导出和设置页回归通过。
+
+### 可后续优化
+
+- 后续可继续减少默认恋爱伴侣与新建同名“予安”同时出现造成的轻微重复感。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key；中文敏感词命中项仅为安全校验和提示文案。
+- 工作区修改文件符合 v0.4.1 范围：`README.md`、`src/App.tsx`、`src/companion/promptValidation.ts`、`src/companion/romanceTemplates.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.4.1 验收通过，允许提交与推送。
