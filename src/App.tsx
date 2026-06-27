@@ -56,7 +56,7 @@ import {
   loadActiveCompanionId,
   loadCompanions,
   loadMemories,
-  loadMessages,
+  loadMessagesByCompanionId,
   loadCompanionOnboardingState,
   loadPrivacyNoticeAck,
   loadProviderConfig,
@@ -65,7 +65,7 @@ import {
   buildLocalDataExport,
   saveCompanions,
   saveMemories,
-  saveMessages,
+  saveMessagesByCompanionId,
   saveCompanionOnboardingState,
   savePrivacyNoticeAck,
   saveProviderConfig,
@@ -108,9 +108,10 @@ const romanceGenderOptions: Array<{ value: RomanceGender; label: string; descrip
 ];
 const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
 const initialOnboardingState = loadCompanionOnboardingState();
-const initialMessages = loadMessages();
+const initialActiveCompanionId = loadActiveCompanionId();
+const initialMessagesByCompanionId = loadMessagesByCompanionId(initialActiveCompanionId);
 const shouldAutoOpenOnboarding =
-  initialOnboardingState.status === "new" && initialMessages.length === 0;
+  initialOnboardingState.status === "new" && Object.values(initialMessagesByCompanionId).every((messages) => messages.length === 0);
 const providerPresets = [
   {
     id: "deepseek-flash",
@@ -220,9 +221,11 @@ function wait(ms: number): Promise<void> {
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
-  const [activeCompanionId, setActiveCompanionId] = useState<string>(() => loadActiveCompanionId());
+  const [activeCompanionId, setActiveCompanionId] = useState<string>(() => initialActiveCompanionId);
   const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => loadProviderConfig());
-  const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages);
+  const [messagesByCompanionId, setMessagesByCompanionId] = useState<Record<string, ChatMessage[]>>(
+    () => initialMessagesByCompanionId,
+  );
   const [memories, setMemories] = useState<UserMemory[]>(() => loadMemories());
   const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => loadStyleSummaries());
   const [input, setInput] = useState("");
@@ -264,6 +267,7 @@ export default function App() {
     () => getCompanionProfile(activeCompanionId, companions),
     [activeCompanionId, companions],
   );
+  const messages = messagesByCompanionId[activeCompanion.id] ?? [];
   const activeStyleSummary = useMemo(
     () => getBoundStyleSummary(styleSummaries, activeCompanion.id, activeCompanion.activeStyleSummaryId),
     [activeCompanion, styleSummaries],
@@ -323,7 +327,7 @@ export default function App() {
 
   useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
   useEffect(() => saveCompanions(companions), [companions]);
-  useEffect(() => saveMessages(messages), [messages]);
+  useEffect(() => saveMessagesByCompanionId(messagesByCompanionId), [messagesByCompanionId]);
   useEffect(() => saveMemories(memories), [memories]);
   useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
   useEffect(() => {
@@ -336,7 +340,7 @@ export default function App() {
     if (messages.length === 0) return;
     const reconnectMessage = buildRomanceReconnectMessage(activeCompanion, messages);
     if (!reconnectMessage) return;
-    setMessages((current) => {
+    setCompanionMessages(activeCompanion.id, (current) => {
       if (current !== messages) return current;
       return [...current, makeMessage("assistant", reconnectMessage)];
     });
@@ -376,6 +380,23 @@ export default function App() {
         companion.id === id ? { ...companion, ...patch, updatedAt: new Date().toISOString() } : companion,
       ),
     );
+  }
+
+  function setCompanionMessages(
+    companionId: string,
+    nextMessages:
+      | ChatMessage[]
+      | ((currentMessages: ChatMessage[], allMessages: Record<string, ChatMessage[]>) => ChatMessage[]),
+  ) {
+    setMessagesByCompanionId((current) => {
+      const currentMessages = current[companionId] ?? [];
+      const resolvedMessages =
+        typeof nextMessages === "function" ? nextMessages(currentMessages, current) : nextMessages;
+      return {
+        ...current,
+        [companionId]: resolvedMessages,
+      };
+    });
   }
 
   function updateEditorCompanion(patch: Partial<CompanionProfile>) {
@@ -560,16 +581,19 @@ export default function App() {
     event.preventDefault();
     const userInput = input.trim();
     if (!userInput || isSending || isAssistantTyping) return;
+    const sendingCompanion = activeCompanion;
+    const sendingCompanionId = sendingCompanion.id;
+    const sendingMessages = messages;
     const responseSequence = responseSequenceRef.current + 1;
     responseSequenceRef.current = responseSequence;
 
     const userMessage = makeMessage("user", userInput);
-    const nextMessages = [...messages, userMessage];
-    const candidates = generateMemoryCandidates(userInput, memories, activeCompanion.id);
+    const nextMessages = [...sendingMessages, userMessage];
+    const candidates = generateMemoryCandidates(userInput, memories, sendingCompanionId);
     const actionableCandidates = candidates.filter((candidate) => memoryVisibleActions.has(candidate.suggestedAction));
     const nextMemories = applyMemoryCandidates(actionableCandidates, memories);
 
-    setMessages(nextMessages);
+    setCompanionMessages(sendingCompanionId, nextMessages);
     setLatestCandidates(candidates);
     if (nextMemories !== memories) {
       setMemories(nextMemories);
@@ -583,10 +607,10 @@ export default function App() {
     try {
       const reply = await sendCompanionMessage({
         config: providerConfig,
-        companion: activeCompanion,
+        companion: sendingCompanion,
         styleSummary: activeStyleSummary,
         memories: nextMemories,
-        history: messages,
+        history: sendingMessages,
         userInput,
       });
       setIsSending(false);
@@ -597,8 +621,8 @@ export default function App() {
       }
       for (const [index, segment] of segments.entries()) {
         await wait(getReplySegmentDelay(segment, index));
-        if (responseSequenceRef.current !== responseSequence) return;
-        setMessages((current) => [...current, makeMessage("assistant", segment)]);
+        if (responseSequenceRef.current !== responseSequence || activeCompanionId !== sendingCompanionId) return;
+        setCompanionMessages(sendingCompanionId, (current) => [...current, makeMessage("assistant", segment)]);
       }
     } catch (err) {
       setError(getFriendlyError(err));
@@ -662,7 +686,7 @@ export default function App() {
 
   function clearChat() {
     responseSequenceRef.current += 1;
-    setMessages([]);
+    setCompanionMessages(activeCompanion.id, []);
     setError("");
     setIsSending(false);
     setIsAssistantTyping(false);
@@ -682,8 +706,7 @@ export default function App() {
   function clearCurrentChatRecords() {
     if (!window.confirm("确定清空当前聊天记录吗？长期记忆、伴侣配置和风格摘要不会被删除。")) return;
     responseSequenceRef.current += 1;
-    setMessages([]);
-    saveMessages([]);
+    setCompanionMessages(activeCompanion.id, []);
     setLatestCandidates([]);
     setError("");
     setIsSending(false);

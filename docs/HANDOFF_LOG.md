@@ -567,3 +567,38 @@
 - 工作区修改文件符合 v0.4.2 范围：`README.md`、`src/App.tsx`、`src/chat-engine/prompt.ts`、`src/storage/localStorage.ts`、`src/styles.css`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.4.2 复验通过，允许提交与推送。
+
+## 2026-06-27 v0.4.3 固定视口与伴侣消息隔离通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.4.3 小修复验。
+- 结论：通过。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- 桌面 1440x900、1280x720 页面级无纵向/横向滚动；移动端 390x844 无横向溢出，页面级滚动被限制，顶部工具按钮横向内部滚动可用。
+- 消息列表、左侧伴侣列表和超高设置弹窗均可在各自区域内部滚动，关闭按钮可用。
+- 伴侣聊天记录已按伴侣隔离：A/B 伴侣分别显示各自聊天；切换后消息保留；清空 A 当前聊天不影响 B。
+- 分段回复取消逻辑通过：mock 返回三段文本时，发送后切换伴侣或清空当前聊天，后续分段不会插入错误伴侣，也不会迟到插回已清空聊天；typing 波点会清理。
+- 旧 `ai-companion:messages` 可在新 grouped 结构为空时迁移到当前 active companion，并写入 `ai-companion:messages-by-companion:v1`。
+- 导出 JSON 仍符合 v0.4.2 策略：payload 不含 API Key、不含顶层 `messages`、不含旧聊天原文。
+- v0.4.2 单聊天页结构、顶部按钮弹窗、用户须知/创建弹窗顺序、旧伴侣兼容入口、blocked prompt 即时校验均回归通过。
+
+### 可后续优化
+
+- 当前导出版本仍为 `v0.4.2` 是本轮任务包预期；若后续希望用户感知 v0.4.3，可统一产品版本显示与导出版本策略。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.4.3 范围：`src/App.tsx`、`src/storage/localStorage.ts`、`src/styles.css`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.4.3 验收通过，允许提交与推送。

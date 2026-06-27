@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   config: "ai-companion:provider-config",
   memories: "ai-companion:memories",
   messages: "ai-companion:messages",
+  messagesByCompanion: "ai-companion:messages-by-companion:v1",
   companion: "ai-companion:companion",
   companions: "ai-companion:companions",
   activeCompanionId: "ai-companion:active-companion-id",
@@ -153,6 +154,23 @@ export function loadMessages(): ChatMessage[] {
 
 export function saveMessages(messages: ChatMessage[]): void {
   writeJSON(STORAGE_KEYS.messages, messages);
+}
+
+export function loadMessagesByCompanionId(activeCompanionId: string): Record<string, ChatMessage[]> {
+  const grouped = readJSON<Record<string, ChatMessage[]>>(STORAGE_KEYS.messagesByCompanion, {});
+  if (grouped && typeof grouped === "object" && Object.keys(grouped).length > 0) {
+    return grouped;
+  }
+
+  const legacyMessages = loadMessages();
+  if (legacyMessages.length === 0) return {};
+  return {
+    [activeCompanionId]: legacyMessages,
+  };
+}
+
+export function saveMessagesByCompanionId(messagesByCompanionId: Record<string, ChatMessage[]>): void {
+  writeJSON(STORAGE_KEYS.messagesByCompanion, messagesByCompanionId);
 }
 
 export function loadCompanions(): CompanionProfile[] {
