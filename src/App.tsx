@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Bot,
@@ -6,17 +6,20 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Heart,
   KeyRound,
   MessageCircle,
   PenLine,
   Plus,
+  RefreshCw,
   Save,
   Send,
   Settings,
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
   UserRoundCog,
 } from "lucide-react";
 import {
@@ -72,10 +75,12 @@ import {
   saveStyleSummaries,
 } from "./storage/localStorage";
 import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
+import { getDesktopBridge, type DesktopInfo, type DesktopUpdatePayload } from "./desktop/desktopBridge";
 import type {
   AppView,
   ChatMessage,
   CompanionProfile,
+  LocalDataExport,
   MemoryCandidate,
   MemoryCategory,
   MemoryImportance,
@@ -261,7 +266,11 @@ export default function App() {
   const [stylePanelMode, setStylePanelMode] = useState<"list" | "import" | "new">("list");
   const [isTraitModalOpen, setIsTraitModalOpen] = useState(false);
   const [isRomanceReconnectSuppressed, setIsRomanceReconnectSuppressed] = useState(false);
+  const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<DesktopUpdatePayload>({ status: "idle" });
+  const [isUpdateNoticeDismissed, setIsUpdateNoticeDismissed] = useState(false);
   const responseSequenceRef = useRef(0);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -330,6 +339,29 @@ export default function App() {
   useEffect(() => saveMessagesByCompanionId(messagesByCompanionId), [messagesByCompanionId]);
   useEffect(() => saveMemories(memories), [memories]);
   useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+
+    let isMounted = true;
+    bridge.getInfo().then((info) => {
+      if (isMounted) setDesktopInfo(info);
+    }).catch(() => undefined);
+    bridge.updates.getStatus().then((status) => {
+      if (isMounted) setUpdateStatus(status);
+    }).catch(() => undefined);
+    const unsubscribe = bridge.updates.onStatus((status) => {
+      setUpdateStatus(status);
+      if (status.status === "available" || status.status === "downloaded") {
+        setIsUpdateNoticeDismissed(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
   useEffect(() => {
     responseSequenceRef.current += 1;
     setIsSending(false);
@@ -753,6 +785,114 @@ export default function App() {
     link.remove();
     URL.revokeObjectURL(url);
     setDataActionMessage("已导出本地配置和记忆 JSON。导出文件不包含 API Key，也不包含原始聊天记录。");
+  }
+
+  function isLocalDataExport(value: unknown): value is LocalDataExport {
+    if (!value || typeof value !== "object") return false;
+    const data = value as Partial<LocalDataExport>;
+    return (
+      typeof data.version === "string" &&
+      Array.isArray(data.companions) &&
+      Array.isArray(data.memories) &&
+      Array.isArray(data.styleSummaries) &&
+      Boolean(data.providerConfigWithoutApiKey)
+    );
+  }
+
+  async function importLocalDataBackup(file: File) {
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isLocalDataExport(parsed)) {
+        setDataActionMessage("这个文件不像 AI伴侣导出的配置/记忆 JSON，请确认后再导入。");
+        return;
+      }
+      if (!window.confirm("导入会覆盖桌面版当前的伴侣、长期记忆、风格摘要和去 Key 的接口配置；API Key 需要重新填写。继续导入吗？")) {
+        return;
+      }
+
+      const nextProviderConfig: ModelProviderConfig = {
+        providerName: parsed.providerConfigWithoutApiKey.providerName ?? defaultProviderConfig.providerName,
+        baseURL: parsed.providerConfigWithoutApiKey.baseURL ?? defaultProviderConfig.baseURL,
+        model: parsed.providerConfigWithoutApiKey.model ?? defaultProviderConfig.model,
+        apiKey: "",
+      };
+      setProviderConfig(nextProviderConfig);
+      setCompanions(parsed.companions);
+      setMemories(parsed.memories);
+      setStyleSummaries(parsed.styleSummaries);
+      saveProviderConfig(nextProviderConfig);
+      saveCompanions(parsed.companions);
+      saveMemories(parsed.memories);
+      saveStyleSummaries(parsed.styleSummaries);
+      if (parsed.companions[0]) {
+        setActiveCompanionId(parsed.companions[0].id);
+      }
+      setSettingsSaved(false);
+      setDataActionMessage("已导入网页版备份。API Key 不在备份里，请在桌面版重新填写并保存。");
+    } catch {
+      setDataActionMessage("导入失败：请确认文件是 AI伴侣导出的 JSON。");
+    } finally {
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = "";
+      }
+    }
+  }
+
+  function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    importLocalDataBackup(file);
+  }
+
+  async function checkForUpdates(simulateAvailable = false) {
+    const bridge = getDesktopBridge();
+    if (!bridge) {
+      setUpdateStatus({
+        status: "not-configured",
+        message: "浏览器版没有桌面更新能力；请使用桌面安装包更新。",
+      });
+      return;
+    }
+    setIsUpdateNoticeDismissed(false);
+    setUpdateStatus({ status: "checking" });
+    const status = await bridge.updates.check({ simulateAvailable });
+    setUpdateStatus(status);
+  }
+
+  async function downloadUpdate() {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    setUpdateStatus({ status: "downloading", percent: 0 });
+    const status = await bridge.updates.download();
+    setUpdateStatus(status);
+  }
+
+  async function quitAndInstallUpdate() {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    const status = await bridge.updates.quitAndInstall();
+    setUpdateStatus(status);
+  }
+
+  function dismissUpdateNotice() {
+    setIsUpdateNoticeDismissed(true);
+    if (updateStatus.status === "available" || updateStatus.status === "downloaded") {
+      setUpdateStatus({ status: "idle", version: desktopInfo?.version });
+    }
+  }
+
+  function getUpdateStatusText(): string {
+    if (updateStatus.status === "checking") return "正在检查更新...";
+    if (updateStatus.status === "not-available") return "当前已是最新版本。";
+    if (updateStatus.status === "available") return `发现新版本 ${updateStatus.version ?? ""}，确认后再下载更新。`;
+    if (updateStatus.status === "downloading") {
+      const percent = typeof updateStatus.percent === "number" ? ` ${Math.round(updateStatus.percent)}%` : "";
+      return `正在下载更新${percent}...`;
+    }
+    if (updateStatus.status === "downloaded") return "更新已下载完成，可以重启并安装。";
+    if (updateStatus.status === "not-configured") return updateStatus.message ?? "暂未配置真实发布源。";
+    if (updateStatus.status === "error") return updateStatus.message ?? "更新检查失败，请稍后再试。";
+    return "默认不会显示更新按钮；只有检测到新版后才出现更新操作。";
   }
 
   function acknowledgePrivacyNotice() {
@@ -1639,6 +1779,86 @@ export default function App() {
               </button>
             </form>
 
+            <div className="settings-block desktop-management">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Desktop</p>
+                  <h3>桌面版与更新</h3>
+                </div>
+              </div>
+              <p className="muted">
+                {desktopInfo
+                  ? `当前桌面版 ${desktopInfo.version}。数据保存在 Electron userData 目录，升级同一 appId 不会清空。`
+                  : "浏览器版不会显示更新行动按钮；安装桌面版后可在这里检查更新。"}
+              </p>
+              {desktopInfo?.userDataPath && (
+                <p className="muted desktop-path">数据目录：{desktopInfo.userDataPath}</p>
+              )}
+              <div className="data-action-list">
+                <div className="data-action">
+                  <div>
+                    <strong>检查更新</strong>
+                    <span>{getUpdateStatusText()}</span>
+                  </div>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => checkForUpdates(false)}
+                    disabled={updateStatus.status === "checking" || updateStatus.status === "downloading"}
+                  >
+                    <RefreshCw size={16} />
+                    检查更新
+                  </button>
+                </div>
+                {desktopInfo && !desktopInfo.isPackaged && (
+                  <div className="data-action">
+                    <div>
+                      <strong>模拟新版提示</strong>
+                      <span>仅开发/验收可见，用来确认“有新版时才出现立即更新按钮”。</span>
+                    </div>
+                    <button className="ghost-button" type="button" onClick={() => checkForUpdates(true)}>
+                      <RefreshCw size={16} />
+                      模拟新版
+                    </button>
+                  </div>
+                )}
+              </div>
+              {(updateStatus.status === "available" || updateStatus.status === "downloaded" || updateStatus.status === "downloading") &&
+                !isUpdateNoticeDismissed && (
+                  <div className="update-card">
+                    <div>
+                      <strong>
+                        {updateStatus.status === "downloaded"
+                          ? "更新已准备好"
+                          : updateStatus.status === "downloading"
+                            ? "正在下载更新"
+                            : "发现新版本"}
+                      </strong>
+                      <p>{getUpdateStatusText()}</p>
+                    </div>
+                    <div className="update-actions">
+                      {updateStatus.status === "available" && (
+                        <button className="primary-button" type="button" onClick={downloadUpdate}>
+                          <Download size={16} />
+                          立即更新
+                        </button>
+                      )}
+                      {updateStatus.status === "downloaded" && (
+                        <button className="primary-button" type="button" onClick={quitAndInstallUpdate}>
+                          <RefreshCw size={16} />
+                          重启并安装
+                        </button>
+                      )}
+                      {updateStatus.status !== "downloading" && (
+                        <button className="ghost-button" type="button" onClick={dismissUpdateNotice}>
+                          稍后
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+            </div>
+
             <div className="settings-block data-management">
               <div className="section-heading">
                 <div>
@@ -1699,6 +1919,23 @@ export default function App() {
                     <Save size={16} />
                     导出
                   </button>
+                </div>
+                <div className="data-action">
+                  <div>
+                    <strong>从网页版导入备份</strong>
+                    <span>只导入 AI伴侣导出的配置/记忆 JSON；API Key 不在备份里，需要重新填写。</span>
+                  </div>
+                  <button className="ghost-button" type="button" onClick={() => importFileInputRef.current?.click()}>
+                    <Upload size={16} />
+                    导入
+                  </button>
+                  <input
+                    ref={importFileInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleImportFileChange}
+                  />
                 </div>
               </div>
               {dataActionMessage && <p className="inline-status">{dataActionMessage}</p>}

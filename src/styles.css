@@ -1049,6 +1049,40 @@ select:focus {
   line-height: 1.5;
 }
 
+.desktop-path {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.update-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(82, 166, 226, 0.42);
+  border-radius: 8px;
+  background: rgba(232, 247, 255, 0.88);
+}
+
+.update-card strong,
+.update-card p {
+  margin: 0;
+}
+
+.update-card p {
+  margin-top: 4px;
+  color: var(--text-soft, #547083);
+  line-height: 1.5;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .editor-panel textarea {
   min-height: 76px;
 }

@@ -670,3 +670,44 @@
 - 工作区修改文件符合 v0.6-A 范围：`README.md`、`package.json`、`scripts/start-local.ps1`、`启动AI伴侣.bat`、`构建并预览AI伴侣.bat`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.6-A 返工复验通过，允许提交与推送。
+
+## 2026-06-28 v0.6-B Electron 桌面应用骨架通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.6-B Electron 桌面应用骨架、NSIS 安装包、更新按钮和显式数据迁移复验。
+- 结论：通过。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- Web 回归通过：`npm run build` 通过，`npx tsc --noEmit` 通过，`npm run dev` 短启动后 `http://127.0.0.1:5173/` 返回 200，4173 未启动；v0.6-A `启动AI伴侣.bat` 等价执行可启动 5173。
+- Electron 构建通过：`npm run electron:build-main`、`npm run desktop:dir`、`npm run desktop:dist` 均通过。
+- 桌面产物存在：`release-v06b/win-unpacked/AI伴侣.exe`、`release-v06b/AI伴侣 Setup 0.1.0.exe`、`release-v06b/latest.yml`、`release-v06b/AI伴侣 Setup 0.1.0.exe.blockmap`。
+- unpacked 桌面程序可独立启动并保持运行，进程名为 `AI伴侣`，窗口标题为 `AI伴侣 Demo`。
+- NSIS 安装包可静默安装和卸载；安装后 exe 可启动并保持运行。卸载后临时安装目录可能保留空目录，记录为后续优化，不阻塞 P0。
+- 更新入口符合 P0 规则：packaged 桌面版设置弹窗提供“桌面版与更新”“检查更新”“从网页版导入备份”和数据目录展示；无可用更新时不展示“立即更新/重启并安装”行动按钮。
+- 开发态 Electron 模拟新版链路通过：模拟新版后显示“立即更新/稍后”，下载完成后显示“重启并安装/稍后”，点击“稍后”后行动按钮隐藏。
+- 显式迁移通过：从网页版导出的 JSON 可通过桌面设置导入；`providerName/baseURL/model`、伴侣、记忆、风格摘要会写入桌面 localStorage，`apiKey` 被强制置空，不会导入 Key。
+- Electron 安全边界通过：`nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`、`webSecurity:true`；packaged renderer 中 `window.require` 和 `window.process` 不存在；preload 只暴露桌面信息和更新相关受限接口；导航和外链受限；普通 packaged 版不开 DevTools。
+- 隐私/文档通过：`docs/DESKTOP_RELEASE.md` 说明安装包、数据迁移、更新机制、本地测试源、无代码签名、隐私边界；README 保留 v0.6-A 本地启动说明。`buildLocalDataExport()` 仍移除 `apiKey`，导出不包含原始 `messages`。
+- 文本、配置和更新元数据密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key。release 二进制扫描时 Electron/Chromium 二进制误报片段已排除。
+
+### 可后续优化
+
+- 配置正式应用图标。
+- 补充 `package.json` 的 `description` 和 `author`，减少 electron-builder warning。
+- 优化 NSIS 卸载后的空目录清理体验。
+- 正式分发前需要代码签名证书和真实 HTTPS/GitHub Releases 发布源。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行 Electron 主进程编译：`npm run electron:build-main` 通过。
+- 已执行桌面目录构建：`npm run desktop:dir` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.6-B 范围：`.gitignore`、`package-lock.json`、`package.json`、`src/App.tsx`、`src/styles.css`、`vite.config.ts`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/`、`scripts/write-electron-package-marker.cjs`、`src/desktop/`。
+- `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/` 均为本地/构建产物，不进入提交。
+- v0.6-B 验收通过，允许提交与推送。

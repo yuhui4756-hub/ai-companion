@@ -3,23 +3,33 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:open": "vite --host 127.0.0.1 --port 5173 --strictPort --open",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
     "preview:open": "vite preview --host 127.0.0.1 --port 5173 --strictPort --open",
-    "start:local": "npm run dev:open"
+    "start:local": "npm run dev:open",
+    "electron:build-main": "tsc -p electron/tsconfig.json && node scripts/write-electron-package-marker.cjs",
+    "electron:dev": "npm run build && npm run electron:build-main && electron .",
+    "desktop:build": "npm run build && npm run electron:build-main",
+    "desktop:dir": "npm run desktop:build && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build && electron-builder --win nsis"
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/node": "^20.17.24",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.6.3",
     "vite": "^6.0.3"
   }
