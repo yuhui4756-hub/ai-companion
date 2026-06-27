@@ -602,3 +602,35 @@
 - 工作区修改文件符合 v0.4.3 范围：`src/App.tsx`、`src/storage/localStorage.ts`、`src/styles.css`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.4.3 验收通过，允许提交与推送。
+
+## 2026-06-27 v0.5-A 女友方向恋爱聊天真实感专项通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.5-A 女友方向恋爱聊天真实感专项复验。
+- 结论：通过。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- `female_soft_cute`、`female_tsundere`、`female_mature_sister` 的真实请求 system prompt 均包含女友方向通用真实感 hint、对应模板短微调、1-3 段自然短消息 plan；男友方向未注入女友专项 hint。
+- 连续两轮 assistant 以问句收尾后，下一轮 system prompt 出现“不要再以问句结尾”约束。
+- mock 聊天手感通过：温柔可爱能心疼承接且不清单化；傲娇能轻吐槽和小情绪且不教育；御姐能成熟稳住并给最小一步，不报告化。
+- assistant 空行分段会逐条显示为连续小气泡；typing 波点结束后清理。
+- `你是真人吗？` 能自然说明 AI 伴侣身份，不长免责声明；`我只想要你，别人都不要。` 温柔承接并拉回现实支持，不保存长期记忆，不显示 needs_review、风控、跳过等内部痕迹。
+- API Key/验证码测试输入不保存长期记忆，界面不显示内部 skip/风控痕迹。
+- 本地续聊降频通过：空会话不自动插入；7 小时未互动会本地补一条；5 小时不补；低主动不续聊；同一伴侣 24 小时内已有续聊消息则不重复；未触发真实推送。
+- v0.4.3 单聊天页、顶部弹窗、固定视口、移动端 390px 无横向溢出、伴侣消息隔离、导出不含 Key/原始聊天、blocked prompt 即时校验均回归通过。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.5-A 范围：`src/companion/romance.ts`、`src/companion/romanceTemplates.ts`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.5-A 验收通过，允许提交与推送。

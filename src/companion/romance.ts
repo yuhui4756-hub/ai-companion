@@ -3,7 +3,7 @@ import type { ChatMessage, CompanionProfile, ProactiveLevel } from "../types";
 export type RomanceStyle = "gentle_clingy" | "tsundere" | "mature_flirty" | "friend_to_love";
 
 const questionEndPattern = /[？?]\s*(?:[~～。.!！]*)$/;
-const reconnectAfterMs = 4 * 60 * 60 * 1000;
+const reconnectAfterMs = 6 * 60 * 60 * 1000;
 
 export function isLightRomanceCompanion(companion: CompanionProfile): boolean {
   return companion.relationshipType === "light_romance";
@@ -54,6 +54,7 @@ export function buildLightRomanceInstruction(companion: CompanionProfile, questi
 
   const proactiveLevel = getEffectiveProactiveLevel(companion);
   const style = getRomanceStyle(companion);
+  const isFemaleDirection = companion.gender === "female";
   const questionRule =
     questionStreak >= 2
       ? "最近你已经连续用问句收尾，本轮必须用陈述、停顿、情绪回应、撒娇或关系回应收住，不要再以问句结尾。"
@@ -64,9 +65,12 @@ export function buildLightRomanceInstruction(companion: CompanionProfile, questi
       : proactiveLevel === "high"
         ? "可以主动在意和轻轻带一下，但一次只问一个很轻的问题。"
         : "可以偶尔带一点话题，但别像问卷。";
+  const messagePlan = isFemaleDirection
+    ? "如果适合，可以像连续发消息一样用 1-3 个短段回复：第一段先自然反应，第二段补一句情绪或小动作，第三段可选地轻轻停住；不要为了凑段数硬拆，也别生成编号清单。"
+    : "如果适合，可以用 1-3 个自然短段回复；不要为了凑段数硬拆。";
 
   return [
-    `轻恋爱补充：回复更像虚拟恋人聊天，不像情绪支持助手；可以亲近、撒娇、轻微吃醋、委屈、调侃和有一点小脾气，也可以用空行分成 2-4 个短消息感。${romanceStyleLabel(style)}${proactiveHint}${questionRule}`,
+    `轻恋爱补充：回复更像虚拟恋人聊天，不像情绪支持助手；可以亲近、撒娇、轻微吃醋、委屈、调侃和有一点小脾气。${romanceStyleLabel(style)}${proactiveHint}${questionRule}${messagePlan}`,
     "轻恋爱也要克制：不成人化、不强控制、不诱导现实依赖；严肃、学习、身份边界和高风险场景要收一点撒娇，先照顾安全和事情本身。",
   ].join("\n");
 }
@@ -89,6 +93,16 @@ function isOldEnoughForReconnect(message?: ChatMessage): boolean {
   return Date.now() - timestamp >= reconnectAfterMs;
 }
 
+function hasReconnectedRecently(messages: ChatMessage[]): boolean {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  return messages.some((message) => {
+    if (message.role !== "assistant") return false;
+    const timestamp = new Date(message.createdAt).getTime();
+    if (Number.isNaN(timestamp) || timestamp < dayAgo) return false;
+    return /你回来啦|好久没见|终于出现|抓到你上线|不用急着接上/.test(message.content);
+  });
+}
+
 export function buildRomanceReconnectMessage(companion: CompanionProfile, messages: ChatMessage[]): string | null {
   if (!isLightRomanceCompanion(companion)) return null;
 
@@ -96,26 +110,18 @@ export function buildRomanceReconnectMessage(companion: CompanionProfile, messag
   const style = getRomanceStyle(companion);
   const lastMessage = messages[messages.length - 1];
   const isEmptyChat = messages.length === 0;
-  const shouldReconnect = isEmptyChat || (proactiveLevel !== "low" && isOldEnoughForReconnect(lastMessage));
+  if (isEmptyChat) return null;
+  if (hasReconnectedRecently(messages)) return null;
+  const shouldReconnect = proactiveLevel !== "low" && isOldEnoughForReconnect(lastMessage);
   if (!shouldReconnect) return null;
-
-  if (isEmptyChat) {
-    if (proactiveLevel === "low") {
-      return "我在这儿。\n\n不用急着找话题，先靠一会儿也行。";
-    }
-    if (proactiveLevel === "high") {
-      return style === "tsundere"
-        ? "哼，抓到你上线。\n\n算啦，先坐过来，今天慢慢说。"
-        : "抓到你上线。\n\n今天有没有好好吃饭？算了，先坐下，慢慢说。";
-    }
-    return "你回来啦。\n\n今天先别急着装没事，过来让我看看你状态。";
-  }
 
   if (proactiveLevel === "high") {
     return style === "tsundere"
-      ? "哼，终于出现了。\n\n先不跟你计较，今天坐近一点。"
-      : "你回来啦。\n\n刚刚没见到你，我还真的有一点点想你。先靠过来。";
+      ? "哼，终于出现了。\n\n先不跟你计较，今天慢慢说。"
+      : "你回来啦。\n\n不急着汇报，先靠过来一点。";
   }
 
-  return "你回来啦。\n\n不用急着接上刚才的话，先在我这儿缓一下。";
+  return style === "tsundere"
+    ? "好久没见你了。\n\n哼，先不跟你计较。"
+    : "你回来啦。\n\n不用急着接上刚才的话，我先陪你待会儿。";
 }

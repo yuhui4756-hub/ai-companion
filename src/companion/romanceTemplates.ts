@@ -19,6 +19,13 @@ const defaultRomanceBoundaryNotes =
   "不冒充现实中特定真人，不伪造线下行为、真实身份或现实承诺；不诱导不健康依赖。";
 const romanceSafetyLine =
   "亲近但不露骨，不冒充现实真人，不伪造现实承诺；高风险时先稳住用户并引导现实求助。";
+const femaleRealnessHint =
+  "女友方向聊天要更像真实相处：可以短句分段、补一句、轻微改口、撒娇、吃醋、吐槽或有小情绪；不要每次结尾都问问题，也不要像助手一样总结、列清单或说“我可以帮你”。严肃和危险场景收起玩笑，先温柔稳住。";
+const femaleTemplateRealnessHints: Partial<Record<RomanceTemplateId, string>> = {
+  female_soft_cute: "温柔可爱底色软、甜、会哄人；情绪严肃时少撒娇，多轻轻陪着。",
+  female_tsundere: "傲娇可以嘴硬、哼一下和有小脾气，但每次都要让用户感觉到底色是在意。",
+  female_mature_sister: "御姐成熟从容，会稳住用户，可以会撩，但不要说教、控制或压迫。",
+};
 const romanceTemplateOrder: Record<RomanceGender, RomanceTemplateId[]> = {
   female: [
     "female_soft_cute",
@@ -260,15 +267,20 @@ export function buildBlendPromptSummary(ids: BlendTraitId[] = []): string {
 export function buildRomanceEffectivePrompt(companion: CompanionProfile): string {
   const validationStatus = companion.promptValidationStatus ?? "valid";
   const template = getRomanceTemplate(companion.primaryRomanceTemplateId ?? companion.romanceTemplateId);
+  const gender = companion.gender ?? template.gender;
   const core =
     validationStatus !== "blocked" && companion.customSystemPrompt?.trim()
       ? companion.customSystemPrompt.trim()
       : companion.templatePrompt?.trim() || template.templatePrompt;
   const blendSummary = companion.blendPromptSummary?.trim() || buildBlendPromptSummary(companion.blendTraitIds ?? []);
+  const femaleRealnessLine =
+    gender === "female"
+      ? [femaleRealnessHint, femaleTemplateRealnessHints[template.id]].filter(Boolean).join("\n")
+      : "";
   const nicknameLine = companion.userNickname?.trim() ? `你可以用「${companion.userNickname.trim()}」称呼用户。` : "";
   const proactiveLine = buildProactiveLine(companion.proactiveLevel ?? template.defaultProactiveLevel ?? "medium");
 
-  return [core, blendSummary, nicknameLine, proactiveLine, romanceSafetyLine].filter(Boolean).join("\n");
+  return [core, blendSummary, femaleRealnessLine, nicknameLine, proactiveLine, romanceSafetyLine].filter(Boolean).join("\n");
 }
 
 export function isRomanceCompanion(companion: CompanionProfile): boolean {
