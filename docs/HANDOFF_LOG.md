@@ -634,3 +634,39 @@
 - 工作区修改文件符合 v0.5-A 范围：`src/companion/romance.ts`、`src/companion/romanceTemplates.ts`。
 - `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
 - v0.5-A 验收通过，允许提交与推送。
+
+## 2026-06-27 v0.6-A Windows 一键本地启动通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.6-A Windows 一键启动方式返工复验。
+- 结论：通过。
+- 阻塞问题：无。此前 Windows PowerShell 5.1 因 `scripts/start-local.ps1` 无 UTF-8 BOM 导致 `.bat` 双击入口解析失败的问题已修复。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key 等硬编码密钥。
+- `scripts/start-local.ps1` 首字节为 `EF BB BF`，Windows PowerShell 5.1 `-File` 可正确解析中文字符串。
+- `package.json` 中 `dev`、`dev:open`、`preview`、`preview:open` 均固定 `--host 127.0.0.1 --port 5173 --strictPort`，`start:local` 指向 `npm run dev:open`。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\start-local.ps1 -Mode dev` 可启动开发版，`http://127.0.0.1:5173/` 返回 200，`4173` 无服务。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\start-local.ps1 -Mode preview` 会先执行构建，再以固定 `5173` 预览构建版。
+- `启动AI伴侣.bat` 和 `构建并预览AI伴侣.bat` 等价执行通过，均固定 `http://127.0.0.1:5173/`。
+- 5173 端口占用时不切换端口，会提示已有 AI伴侣窗口/服务可能在运行，并打开固定地址。
+- README 小白说明覆盖 Node.js LTS、双击启动、固定地址、Ctrl+C 停止、localStorage 与当前浏览器和访问地址绑定、不要混用 localhost/其他端口/其他浏览器、非正式安装包边界、导出不含 API Key 和原始聊天记录。
+- 隐私/导出逻辑保持：`buildLocalDataExport()` 会移除 `apiKey`，导出 payload 不包含原始 `messages`；启动脚本不读取或打印 localStorage。
+
+### 可后续优化
+
+- 当前 v0.6-A 是本地启动器方案，不是 Electron/Tauri 正式安装包；如要进一步软件化，可在后续阶段评估桌面壳、数据迁移和更新机制。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.6-A 范围：`README.md`、`package.json`、`scripts/start-local.ps1`、`启动AI伴侣.bat`、`构建并预览AI伴侣.bat`。
+- `.playwright-cli/`、`dist/`、`node_modules/`、`output/` 均为本地/构建产物，不进入提交。
+- v0.6-A 返工复验通过，允许提交与推送。
