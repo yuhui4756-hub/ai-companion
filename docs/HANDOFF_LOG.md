@@ -790,3 +790,15 @@
 - 工作区修改文件符合 v0.6-D 范围：`.gitignore`、`README.md`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/main.ts`、`electron/preload.ts`、`electron/updater.ts`、`package.json`、`package-lock.json`、`src/App.tsx`、`src/desktop/desktopBridge.ts`、`src/styles.css`、`build/icons/*`、`scripts/verify-source-index.cjs`。
 - `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/`、`release-v06c/`、`release-v06d/` 均为本地/构建产物，不进入提交。
 - v0.6-D 复验通过，允许提交与推送。
+
+## 2026-06-28 v0.6-D 应用图标热修通过
+
+### 总控确认
+
+- 用户反馈当前应用图标仍像 Electron 默认图标。
+- 复查确认：`electron-builder.yml` 已配置图标资源，但 `signAndEditExecutable: false` 导致图标未真正写入 `所依.exe` 的 Windows 可执行文件资源。
+- 已新增 `scripts/apply-windows-icon.cjs`，通过 `afterPack` 使用 `rcedit` 在打包后写入 `build/icons/icon.ico`，同时保留“不做代码签名”的边界。
+- 已重新执行 `npm run desktop:dist` 并通过。
+- 已从 `release-v06d/win-unpacked/所依.exe` 和 `release-v06d/suoyi-setup-0.1.0.exe` 直接提取关联图标，确认均为用户提供的所依图标，不再是 Electron 默认图标。
+- 已执行 `npm run build`、`npx tsc --noEmit`、`npm run electron:build-main`，均通过。
+- 已执行敏感信息扫描，命中项仅为历史日志和安全校验规则说明，未发现真实密钥。

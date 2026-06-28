@@ -3,6 +3,7 @@ productName: 所依
 artifactName: "suoyi-setup-${version}.${ext}"
 directories:
   output: release-v06d
+afterPack: scripts/apply-windows-icon.cjs
 files:
   - dist/**/*
   - dist-electron/**/*
