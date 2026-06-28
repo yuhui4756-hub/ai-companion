@@ -29,7 +29,7 @@ export type DesktopBridge = {
   getInfo: () => Promise<DesktopInfo>;
   updates: {
     getStatus: () => Promise<DesktopUpdatePayload>;
-    check: (options?: { simulateAvailable?: boolean }) => Promise<DesktopUpdatePayload>;
+    check: (options?: { simulateAvailable?: boolean; silent?: boolean }) => Promise<DesktopUpdatePayload>;
     download: () => Promise<DesktopUpdatePayload>;
     quitAndInstall: () => Promise<DesktopUpdatePayload>;
     onStatus: (callback: (payload: DesktopUpdatePayload) => void) => () => void;

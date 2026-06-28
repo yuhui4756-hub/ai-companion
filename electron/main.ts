@@ -20,6 +20,7 @@ function isAllowedAppNavigation(url: string): boolean {
 }
 
 function createMainWindow(): void {
+  const windowIcon = path.join(__dirname, "..", "build", "icons", "icon.ico");
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 780,
@@ -27,6 +28,7 @@ function createMainWindow(): void {
     minHeight: 640,
     title: APP_NAME,
     frame: false,
+    icon: windowIcon,
     backgroundColor: "#f4fbff",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

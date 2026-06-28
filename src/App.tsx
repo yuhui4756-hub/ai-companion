@@ -288,6 +288,7 @@ export default function App() {
   const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdatePayload>({ status: "idle" });
   const [isUpdateNoticeDismissed, setIsUpdateNoticeDismissed] = useState(false);
+  const [isUpdatePromptOpen, setIsUpdatePromptOpen] = useState(false);
   const [isDesktopWindowMaximized, setIsDesktopWindowMaximized] = useState(false);
   const responseSequenceRef = useRef(0);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -366,6 +367,9 @@ export default function App() {
     let isMounted = true;
     bridge.getInfo().then((info) => {
       if (isMounted) setDesktopInfo(info);
+      if (info.isPackaged) {
+        bridge.updates.check({ silent: true }).catch(() => undefined);
+      }
     }).catch(() => undefined);
     bridge.updates.getStatus().then((status) => {
       if (isMounted) setUpdateStatus(status);
@@ -374,6 +378,9 @@ export default function App() {
       setUpdateStatus(status);
       if (status.status === "available" || status.status === "downloaded") {
         setIsUpdateNoticeDismissed(false);
+      }
+      if (status.status === "downloaded") {
+        setIsUpdatePromptOpen(true);
       }
     });
     bridge.windowControls?.isMaximized().then((isMaximized) => {
@@ -886,9 +893,10 @@ export default function App() {
     getDesktopBridge()?.windowControls?.close();
   }
 
-  async function checkForUpdates(simulateAvailable = false) {
+  async function checkForUpdates(simulateAvailable = false, silent = false) {
     const bridge = getDesktopBridge();
     if (!bridge) {
+      if (silent) return;
       setUpdateStatus({
         status: "not-configured",
         message: "浏览器版没有桌面更新能力；请使用桌面安装包更新。",
@@ -896,8 +904,10 @@ export default function App() {
       return;
     }
     setIsUpdateNoticeDismissed(false);
-    setUpdateStatus({ status: "checking" });
-    const status = await bridge.updates.check({ simulateAvailable });
+    if (!silent) {
+      setUpdateStatus({ status: "checking" });
+    }
+    const status = await bridge.updates.check({ simulateAvailable, silent });
     setUpdateStatus(status);
   }
 
@@ -916,11 +926,9 @@ export default function App() {
     setUpdateStatus(status);
   }
 
-  function dismissUpdateNotice() {
+  function closeUpdatePrompt() {
+    setIsUpdatePromptOpen(false);
     setIsUpdateNoticeDismissed(true);
-    if (updateStatus.status === "available" || updateStatus.status === "downloaded") {
-      setUpdateStatus({ status: "idle", version: desktopInfo?.version });
-    }
   }
 
   function getUpdateStatusText(): string {
@@ -1283,7 +1291,6 @@ export default function App() {
               <Heart size={15} />
             </span>
             <strong>{APP_DISPLAY_NAME}</strong>
-            <span>{companionDisplayName(activeCompanion)}</span>
           </div>
           <div className="desktop-window-controls" aria-label="窗口控制">
             <button type="button" onClick={minimizeDesktopWindow} aria-label="最小化">
@@ -1306,7 +1313,23 @@ export default function App() {
           </div>
           <div>
             <h1>{APP_DISPLAY_NAME}</h1>
-            <p>本地恋爱陪伴</p>
+            <div className="brand-subtitle-row">
+              <p>本地恋爱陪伴</p>
+              {(updateStatus.status === "available" ||
+                updateStatus.status === "downloading" ||
+                updateStatus.status === "downloaded") &&
+                !isUpdateNoticeDismissed && (
+                <button
+                  className="update-dot-button"
+                  type="button"
+                  onClick={() => setIsUpdatePromptOpen(true)}
+                  aria-label="发现新版本"
+                  title="发现新版本"
+                >
+                  <RefreshCw size={12} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1360,6 +1383,40 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {isUpdatePromptOpen && (
+          <div className="modal-backdrop nested" role="dialog" aria-modal="true" aria-label="更新提示">
+            <div className="modal-panel update-modal">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Update</p>
+                  <h2>{updateStatus.status === "downloaded" ? "更新已下载" : "发现新版本"}</h2>
+                </div>
+                {updateStatus.status !== "downloading" && (
+                  <button className="ghost-button" type="button" onClick={closeUpdatePrompt}>
+                    稍后
+                  </button>
+                )}
+              </div>
+              <p className="muted">{getUpdateStatusText()}</p>
+              <div className="update-actions">
+                {updateStatus.status === "available" && (
+                  <button className="primary-button" type="button" onClick={downloadUpdate}>
+                    <Download size={16} />
+                    立即更新
+                  </button>
+                )}
+                {updateStatus.status === "downloaded" && (
+                  <button className="primary-button" type="button" onClick={quitAndInstallUpdate}>
+                    <RefreshCw size={16} />
+                    重启安装
+                  </button>
+                )}
+                {updateStatus.status === "downloading" && <span className="inline-status">下载中，请稍等...</span>}
+              </div>
+            </div>
+          </div>
+        )}
 
         {isPrivacyNoticeOpen && (
           <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="用户须知">
@@ -1852,80 +1909,22 @@ export default function App() {
               <div className="section-heading">
                 <div>
                   <p className="eyebrow">Desktop</p>
-                  <h3>桌面版与更新</h3>
+                  <h3>桌面版</h3>
                 </div>
               </div>
               <p className="muted">
                 {desktopInfo
-                  ? `当前桌面版 ${desktopInfo.version}。数据保存在 Electron userData 目录，升级同一 appId 不会清空。`
-                  : "浏览器版不会显示更新行动按钮；安装桌面版后可在这里检查更新。"}
+                  ? `当前版本 ${desktopInfo.version}。数据保存在 Electron userData 目录，升级同一 appId 不会清空。`
+                  : "浏览器版不会显示桌面更新入口。"}
               </p>
               {desktopInfo?.userDataPath && (
                 <p className="muted desktop-path">数据目录：{desktopInfo.userDataPath}</p>
               )}
-              <div className="data-action-list">
-                <div className="data-action">
-                  <div>
-                    <strong>检查更新</strong>
-                    <span>{getUpdateStatusText()}</span>
-                  </div>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => checkForUpdates(false)}
-                    disabled={updateStatus.status === "checking" || updateStatus.status === "downloading"}
-                  >
-                    <RefreshCw size={16} />
-                    检查更新
-                  </button>
-                </div>
-                {desktopInfo && !desktopInfo.isPackaged && (
-                  <div className="data-action">
-                    <div>
-                      <strong>模拟新版提示</strong>
-                      <span>仅开发/验收可见，用来确认“有新版时才出现立即更新按钮”。</span>
-                    </div>
-                    <button className="ghost-button" type="button" onClick={() => checkForUpdates(true)}>
-                      <RefreshCw size={16} />
-                      模拟新版
-                    </button>
-                  </div>
-                )}
-              </div>
-              {(updateStatus.status === "available" || updateStatus.status === "downloaded" || updateStatus.status === "downloading") &&
-                !isUpdateNoticeDismissed && (
-                  <div className="update-card">
-                    <div>
-                      <strong>
-                        {updateStatus.status === "downloaded"
-                          ? "更新已准备好"
-                          : updateStatus.status === "downloading"
-                            ? "正在下载更新"
-                            : "发现新版本"}
-                      </strong>
-                      <p>{getUpdateStatusText()}</p>
-                    </div>
-                    <div className="update-actions">
-                      {updateStatus.status === "available" && (
-                        <button className="primary-button" type="button" onClick={downloadUpdate}>
-                          <Download size={16} />
-                          立即更新
-                        </button>
-                      )}
-                      {updateStatus.status === "downloaded" && (
-                        <button className="primary-button" type="button" onClick={quitAndInstallUpdate}>
-                          <RefreshCw size={16} />
-                          重启并安装
-                        </button>
-                      )}
-                      {updateStatus.status !== "downloading" && (
-                        <button className="ghost-button" type="button" onClick={dismissUpdateNotice}>
-                          稍后
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
+              {desktopInfo && !desktopInfo.isPackaged && (
+                <button className="text-button desktop-debug-update" type="button" onClick={() => checkForUpdates(true)}>
+                  模拟新版提示
+                </button>
+              )}
             </div>
 
             <div className="settings-block data-management">

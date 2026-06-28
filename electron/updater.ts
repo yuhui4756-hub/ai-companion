@@ -74,7 +74,7 @@ export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void 
 
   ipcMain.handle("updates:get-status", () => lastStatus);
 
-  ipcMain.handle("updates:check", async (_event, options?: { simulateAvailable?: boolean }) => {
+  ipcMain.handle("updates:check", async (_event, options?: { simulateAvailable?: boolean; silent?: boolean }) => {
     if (options?.simulateAvailable && !app.isPackaged) {
       mockUpdateAvailable = true;
       return sendStatus(getWindow(), { status: "available", version: `${app.getVersion()}-dev-test` });
@@ -88,7 +88,9 @@ export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void 
       });
     }
 
-    sendStatus(getWindow(), { status: "checking" });
+    if (!options?.silent) {
+      sendStatus(getWindow(), { status: "checking" });
+    }
     try {
       const result = await autoUpdater.checkForUpdates();
       if (!result) {
@@ -144,4 +146,3 @@ export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void 
     return lastStatus;
   });
 }
-

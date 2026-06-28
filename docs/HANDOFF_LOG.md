@@ -750,3 +750,43 @@
 - 工作区修改文件符合 v0.6-C 范围：`.gitignore`、`README.md`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/main.ts`、`electron/preload.ts`、`index.html`、`src/App.tsx`、`src/desktop/desktopBridge.ts`、`src/styles.css`。
 - `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/`、`release-v06c/` 均为本地/构建产物，不进入提交。
 - v0.6-C 复验通过，允许提交与推送。
+
+## 2026-06-28 v0.6-D 正式发布准备通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.6-D 正式发布准备和构建入口污染阻塞修复复验。
+- 结论：通过。
+- 阻塞问题：无。根目录 `index.html` 源码入口污染问题已关闭，并新增构建前守卫防止复发。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- 根目录源码 `index.html` 保持 Vite 入口形态，包含 `<title>所依</title>`、`<div id="root"></div>`、`/src/main.tsx`，不含 `./assets/index-*.js/css` 等 dist 产物引用。
+- 新增 `scripts/verify-source-index.cjs` 构建前守卫，`package.json` 的 `build` 已接入 `node scripts/verify-source-index.cjs && tsc --noEmit && vite build`；`npm run build` 后根目录 `index.html` 未被改写。
+- `package.json` name 为 `suoyi`，补充 description/author。
+- 图标资源存在：`build/icons/source.png`、`build/icons/icon.png`、`build/icons/icon.ico`。
+- `electron-builder.yml` 输出目录为 `release-v06d`，`productName: 所依`，`artifactName: suoyi-setup-${version}.${ext}`，配置 Windows/NSIS 图标，并使用 GitHub provider：owner `yuhui4756-hub`，repo `ai-companion`。
+- `release-v06d/latest.yml` 指向 `suoyi-setup-0.1.0.exe`，包含 sha512/size/releaseDate；`release-v06d/win-unpacked/resources/app-update.yml` 为 GitHub provider 且无 token。
+- 运行 `release-v06d/win-unpacked/所依.exe` 后 `document.title === "所依"`，无默认 File/Edit/View/Window/Help 菜单，窗口按钮为最小化/最大化/关闭，renderer 无 Node 直通，preload 仅暴露白名单能力。
+- v0.6-D 更新入口规则通过：无新版时品牌区无更新小圆点；设置页无大块“检查更新”卡片；显式导入备份入口仍在。
+- Web 回归通过：`npm run dev` 可在固定地址 `http://127.0.0.1:5173/` 返回 200。
+- 密钥扫描未发现真实 `sk-*`、Bearer token、x-api-key 或 GitHub token。
+
+### 已知边界
+
+- 当前未配置代码签名；正式公开分发时 Windows SmartScreen 可能提示未知发布者。
+- 真实 GitHub Releases 自动更新仍需后续实际发布并上传安装包、`latest.yml`、blockmap 后做端到端验证。
+- `release-v06d`、`dist`、`dist-electron` 等构建产物不提交进源码仓库。
+
+### 总控最终确认
+
+- 已执行构建前守卫：`node scripts/verify-source-index.cjs` 通过。
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行 Electron 主进程编译：`npm run electron:build-main` 通过。
+- 已执行桌面安装包构建：`npm run desktop:dist` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token、x-api-key 或 GitHub token。
+- 工作区修改文件符合 v0.6-D 范围：`.gitignore`、`README.md`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/main.ts`、`electron/preload.ts`、`electron/updater.ts`、`package.json`、`package-lock.json`、`src/App.tsx`、`src/desktop/desktopBridge.ts`、`src/styles.css`、`build/icons/*`、`scripts/verify-source-index.cjs`。
+- `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/`、`release-v06c/`、`release-v06d/` 均为本地/构建产物，不进入提交。
+- v0.6-D 复验通过，允许提交与推送。

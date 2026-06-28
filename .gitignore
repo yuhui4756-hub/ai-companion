@@ -7,7 +7,12 @@ dist-electron/
 release/
 release-v06b/
 release-v06c/
+release-v06d/
 build/
+!build/
+build/*
+!build/icons/
+!build/icons/**
 coverage/
 
 # Local environment and secrets

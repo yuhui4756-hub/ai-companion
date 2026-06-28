@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld("aiCompanionDesktop", {
   getInfo: () => ipcRenderer.invoke("desktop:get-info"),
   updates: {
     getStatus: () => ipcRenderer.invoke("updates:get-status"),
-    check: (options?: { simulateAvailable?: boolean }) => ipcRenderer.invoke("updates:check", options),
+    check: (options?: { simulateAvailable?: boolean; silent?: boolean }) => ipcRenderer.invoke("updates:check", options),
     download: () => ipcRenderer.invoke("updates:download"),
     quitAndInstall: () => ipcRenderer.invoke("updates:quit-and-install"),
     onStatus: (callback: (payload: UpdateStatusPayload) => void) => {

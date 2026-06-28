@@ -1,13 +1,15 @@
 {
-  "name": "ai-companion-demo",
+  "name": "suoyi",
   "private": true,
   "version": "0.1.0",
+  "description": "所依 - 本地优先的 AI 恋爱陪伴桌面应用",
+  "author": "yuhui4756-hub",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:open": "vite --host 127.0.0.1 --port 5173 --strictPort --open",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/verify-source-index.cjs && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
     "preview:open": "vite preview --host 127.0.0.1 --port 5173 --strictPort --open",
     "start:local": "npm run dev:open",
