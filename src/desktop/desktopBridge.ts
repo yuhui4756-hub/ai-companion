@@ -34,6 +34,13 @@ export type DesktopBridge = {
     quitAndInstall: () => Promise<DesktopUpdatePayload>;
     onStatus: (callback: (payload: DesktopUpdatePayload) => void) => () => void;
   };
+  windowControls?: {
+    minimize: () => Promise<void>;
+    toggleMaximize: () => Promise<boolean>;
+    close: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void;
+  };
 };
 
 declare global {
@@ -45,4 +52,3 @@ declare global {
 export function getDesktopBridge(): DesktopBridge | undefined {
   return window.aiCompanionDesktop;
 }
-

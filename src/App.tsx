@@ -9,7 +9,10 @@ import {
   Download,
   Heart,
   KeyRound,
+  Maximize2,
   MessageCircle,
+  Minimize2,
+  Minus,
   PenLine,
   Plus,
   RefreshCw,
@@ -21,6 +24,7 @@ import {
   Trash2,
   Upload,
   UserRoundCog,
+  X,
 } from "lucide-react";
 import {
   companionTraits,
@@ -117,6 +121,7 @@ const initialActiveCompanionId = loadActiveCompanionId();
 const initialMessagesByCompanionId = loadMessagesByCompanionId(initialActiveCompanionId);
 const shouldAutoOpenOnboarding =
   initialOnboardingState.status === "new" && Object.values(initialMessagesByCompanionId).every((messages) => messages.length === 0);
+const APP_DISPLAY_NAME = "所依";
 const providerPresets = [
   {
     id: "deepseek-flash",
@@ -165,6 +170,20 @@ function getFriendlyError(error: unknown): string {
 
 function companionDisplayName(companion: CompanionProfile): string {
   return companion.name.trim() || "未命名伴侣";
+}
+
+function getCompanionAvatarText(companion: CompanionProfile): string {
+  const displayName = companionDisplayName(companion);
+  return displayName.slice(0, 1).toUpperCase();
+}
+
+function getCompanionStatusText(companion: CompanionProfile, messagesById: Record<string, ChatMessage[]>): string {
+  const messages = messagesById[companion.id] ?? [];
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage) return "还没开始聊";
+  const summary = lastMessage.content.replace(/\s+/g, " ").trim();
+  if (!summary) return lastMessage.role === "user" ? "刚刚聊过" : "在线";
+  return summary.length > 18 ? `${summary.slice(0, 18)}...` : summary;
 }
 
 function nextOnboardingState(status: "skipped" | "completed") {
@@ -269,6 +288,7 @@ export default function App() {
   const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdatePayload>({ status: "idle" });
   const [isUpdateNoticeDismissed, setIsUpdateNoticeDismissed] = useState(false);
+  const [isDesktopWindowMaximized, setIsDesktopWindowMaximized] = useState(false);
   const responseSequenceRef = useRef(0);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -356,10 +376,17 @@ export default function App() {
         setIsUpdateNoticeDismissed(false);
       }
     });
+    bridge.windowControls?.isMaximized().then((isMaximized) => {
+      if (isMounted) setIsDesktopWindowMaximized(isMaximized);
+    }).catch(() => undefined);
+    const unsubscribeWindow =
+      bridge.windowControls?.onMaximizedChange((isMaximized) => setIsDesktopWindowMaximized(isMaximized)) ??
+      (() => undefined);
 
     return () => {
       isMounted = false;
       unsubscribe();
+      unsubscribeWindow();
     };
   }, []);
   useEffect(() => {
@@ -779,7 +806,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `ai-companion-local-data-v0.4.2-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `suoyi-local-data-v0.6-c-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -803,7 +830,7 @@ export default function App() {
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
       if (!isLocalDataExport(parsed)) {
-        setDataActionMessage("这个文件不像 AI伴侣导出的配置/记忆 JSON，请确认后再导入。");
+        setDataActionMessage("这个文件不像所依导出的配置/记忆 JSON，请确认后再导入。");
         return;
       }
       if (!window.confirm("导入会覆盖桌面版当前的伴侣、长期记忆、风格摘要和去 Key 的接口配置；API Key 需要重新填写。继续导入吗？")) {
@@ -830,7 +857,7 @@ export default function App() {
       setSettingsSaved(false);
       setDataActionMessage("已导入网页版备份。API Key 不在备份里，请在桌面版重新填写并保存。");
     } catch {
-      setDataActionMessage("导入失败：请确认文件是 AI伴侣导出的 JSON。");
+      setDataActionMessage("导入失败：请确认文件是所依导出的 JSON。");
     } finally {
       if (importFileInputRef.current) {
         importFileInputRef.current.value = "";
@@ -842,6 +869,21 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     importLocalDataBackup(file);
+  }
+
+  function minimizeDesktopWindow() {
+    getDesktopBridge()?.windowControls?.minimize();
+  }
+
+  async function toggleDesktopMaximize() {
+    const isMaximized = await getDesktopBridge()?.windowControls?.toggleMaximize();
+    if (typeof isMaximized === "boolean") {
+      setIsDesktopWindowMaximized(isMaximized);
+    }
+  }
+
+  function closeDesktopWindow() {
+    getDesktopBridge()?.windowControls?.close();
   }
 
   async function checkForUpdates(simulateAvailable = false) {
@@ -994,15 +1036,19 @@ export default function App() {
           }}
           type="button"
         >
-          {!compact && <span>{relationshipLabels[profile.relationshipType]}</span>}
-          <strong>{companionDisplayName(profile)}</strong>
-          {!compact && (
+          <span className="companion-avatar" aria-hidden="true">
+            {getCompanionAvatarText(profile)}
+          </span>
+          <span className="companion-card-body">
+            <strong>{companionDisplayName(profile)}</strong>
             <small>
-              {profile.customPersonalityText ||
-                getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") ||
-                "未选择特质"}
+              {compact
+                ? getCompanionStatusText(profile, messagesByCompanionId)
+                : profile.customPersonalityText ||
+                  getTraitsByIds(profile.traitIds).map((trait) => trait.label).join("、") ||
+                  relationshipLabels[profile.relationshipType]}
             </small>
-          )}
+          </span>
         </button>
         {allowVisibilityToggle && !isRomanceCompanion(profile) && (
           <button
@@ -1229,15 +1275,38 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={desktopInfo ? "desktop-app-frame" : "desktop-app-frame web-mode"}>
+      {desktopInfo && (
+        <header className="desktop-titlebar">
+          <div className="desktop-titlebar-brand">
+            <span className="desktop-titlebar-mark">
+              <Heart size={15} />
+            </span>
+            <strong>{APP_DISPLAY_NAME}</strong>
+            <span>{companionDisplayName(activeCompanion)}</span>
+          </div>
+          <div className="desktop-window-controls" aria-label="窗口控制">
+            <button type="button" onClick={minimizeDesktopWindow} aria-label="最小化">
+              <Minus size={15} />
+            </button>
+            <button type="button" onClick={toggleDesktopMaximize} aria-label={isDesktopWindowMaximized ? "还原" : "最大化"}>
+              {isDesktopWindowMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+            <button className="close" type="button" onClick={closeDesktopWindow} aria-label="关闭">
+              <X size={16} />
+            </button>
+          </div>
+        </header>
+      )}
+      <div className="app-shell">
+        <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
             <Heart size={21} />
           </div>
           <div>
-            <h1>AI伴侣</h1>
-            <p>本地 BYOK 网页 Demo</p>
+            <h1>{APP_DISPLAY_NAME}</h1>
+            <p>本地恋爱陪伴</p>
           </div>
         </div>
 
@@ -1260,12 +1329,12 @@ export default function App() {
             更多
           </button>
         </section>
-      </aside>
+        </aside>
 
-      <main className="main">
+        <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">v0.4.2 恋爱陪伴优先 Demo</p>
+            <p className="eyebrow">恋爱陪伴优先</p>
             <h2>{companionDisplayName(activeCompanion)}</h2>
           </div>
           <div className="top-actions" aria-label="聊天工具">
@@ -1307,7 +1376,7 @@ export default function App() {
                 )}
               </div>
               <div className="notice-list">
-                <p>这是本地 BYOK 的 AI 恋爱伴侣 Demo。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器。</p>
+                <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地。</p>
                 <p>聊天时浏览器会用你填写的接口请求模型服务商；项目不内置、不上传、不代管你的真实 Key。</p>
                 <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
                 <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
@@ -1923,7 +1992,7 @@ export default function App() {
                 <div className="data-action">
                   <div>
                     <strong>从网页版导入备份</strong>
-                    <span>只导入 AI伴侣导出的配置/记忆 JSON；API Key 不在备份里，需要重新填写。</span>
+                    <span>只导入所依导出的配置/记忆 JSON；API Key 不在备份里，需要重新填写。</span>
                   </div>
                   <button className="ghost-button" type="button" onClick={() => importFileInputRef.current?.click()}>
                     <Upload size={16} />
@@ -2268,7 +2337,8 @@ export default function App() {
             </div>
           </div>
         )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

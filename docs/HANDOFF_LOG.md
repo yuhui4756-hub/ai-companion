@@ -711,3 +711,42 @@
 - 工作区修改文件符合 v0.6-B 范围：`.gitignore`、`package-lock.json`、`package.json`、`src/App.tsx`、`src/styles.css`、`vite.config.ts`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/`、`scripts/write-electron-package-marker.cjs`、`src/desktop/`。
 - `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/` 均为本地/构建产物，不进入提交。
 - v0.6-B 验收通过，允许提交与推送。
+
+## 2026-06-28 v0.6-C 所依桌面软件感 UI 与品牌改名通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.6-C 桌面软件感 UI 重整、“所依”品牌改名和标题/构建入口小修复验。
+- 结论：通过。
+- 阻塞问题：无。此前 `index.html` 被误写成 dist 产物形态导致构建失败的问题已修复。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- 源码 `index.html` 已恢复为 Vite 入口形态，包含 `<title>所依</title>`、`<div id="root"></div>` 和 `/src/main.tsx` 入口脚本，不再引用 `./assets/index-*.js/css` 构建产物。
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- `npm run electron:build-main` 通过。
+- `npm run desktop:dir` 通过，重新生成 `release-v06c/win-unpacked/所依.exe`。
+- `release-v06c/win-unpacked/resources/app.asar` 内 `dist/index.html` 标题为 `所依`，且不包含旧标题 `AI伴侣 Demo`。
+- 运行 `所依.exe` 后 `document.title === "所依"`，页面为 file URL，旧标题不存在。
+- 应用内品牌文本为“所依”；无默认 `File / Edit / View / Window / Help` 菜单栏；自定义标题栏存在；窗口按钮为“最小化 / 最大化 / 关闭”；标题栏区域可拖拽，按钮区域不可拖拽。
+- Electron 配置保持：`frame:false`、`Menu.setApplicationMenu(null)`、`APP_NAME = "所依"`、`app.setName(APP_NAME)`、`nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`、`webSecurity:true` 未回退。
+- 内部 `userDataPath` 仍为 `AppData/Roaming/AI伴侣`，用于保护 v0.6-B 已有桌面数据，符合允许范围。
+- 设置里仍有“检查更新”“从网页版导入备份”；`available` 才显示“立即更新”，`downloaded` 才显示“重启并安装”；Web 模式通过 `desktopInfo` 降级，不显示假的桌面标题栏。
+- 密钥扫描未发现真实 `sk-*`、Bearer token 或 x-api-key。
+
+### 可后续优化
+
+- 正式图标、代码签名、真实 GitHub Releases/HTTPS 更新源仍属于 v0.6-D 暂缓项。
+
+### 总控最终确认
+
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行 Electron 主进程编译：`npm run electron:build-main` 通过。
+- 已执行桌面目录构建：`npm run desktop:dir` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token 或 x-api-key。
+- 工作区修改文件符合 v0.6-C 范围：`.gitignore`、`README.md`、`docs/DESKTOP_RELEASE.md`、`electron-builder.yml`、`electron/main.ts`、`electron/preload.ts`、`index.html`、`src/App.tsx`、`src/desktop/desktopBridge.ts`、`src/styles.css`。
+- `.playwright-cli/`、`dist/`、`dist-electron/`、`node_modules/`、`output/`、`release/`、`release-v06b/`、`release-v06c/` 均为本地/构建产物，不进入提交。
+- v0.6-C 复验通过，允许提交与推送。

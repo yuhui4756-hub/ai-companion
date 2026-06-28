@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { registerUpdaterIpc } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
 
+const APP_NAME = "所依";
+const STABLE_USER_DATA_DIR = "AI伴侣";
 const isDevelopment = !app.isPackaged && Boolean(process.env.ELECTRON_RENDERER_URL);
 
 function getAppUrl(): string {
@@ -23,7 +25,8 @@ function createMainWindow(): void {
     height: 780,
     minWidth: 980,
     minHeight: 640,
-    title: "AI伴侣",
+    title: APP_NAME,
+    frame: false,
     backgroundColor: "#f4fbff",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -33,6 +36,11 @@ function createMainWindow(): void {
       webSecurity: true,
     },
   });
+
+  const sendWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("desktop-window:maximized-change", mainWindow.isMaximized());
+  };
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
@@ -69,9 +77,13 @@ function createMainWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  mainWindow.on("maximize", sendWindowState);
+  mainWindow.on("unmaximize", sendWindowState);
 }
 
-app.setName("AI伴侣");
+app.setName(APP_NAME);
+app.setPath("userData", path.join(app.getPath("appData"), STABLE_USER_DATA_DIR));
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -83,6 +95,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+
     ipcMain.handle("desktop:get-info", () => ({
       appName: app.getName(),
       version: app.getVersion(),
@@ -90,6 +104,26 @@ if (!app.requestSingleInstanceLock()) {
       isPackaged: app.isPackaged,
       userDataPath: app.getPath("userData"),
     }));
+
+    ipcMain.handle("desktop-window:minimize", () => {
+      mainWindow?.minimize();
+    });
+
+    ipcMain.handle("desktop-window:toggle-maximize", () => {
+      if (!mainWindow) return false;
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+      return mainWindow.isMaximized();
+    });
+
+    ipcMain.handle("desktop-window:close", () => {
+      mainWindow?.close();
+    });
+
+    ipcMain.handle("desktop-window:is-maximized", () => mainWindow?.isMaximized() ?? false);
 
     registerUpdaterIpc(() => mainWindow);
     createMainWindow();
@@ -107,4 +141,3 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
-

@@ -1882,16 +1882,128 @@ body {
   min-height: 100%;
 }
 
+.desktop-app-frame {
+  display: grid;
+  width: 100%;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 42px minmax(0, 1fr);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(116, 194, 255, 0.34), transparent 31%),
+    radial-gradient(circle at 91% 2%, rgba(195, 228, 255, 0.5), transparent 36%),
+    linear-gradient(145deg, #ecf8ff 0%, #fbfdff 52%, #e9f5ff 100%);
+}
+
+.desktop-app-frame.web-mode {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.desktop-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 10px 0 18px;
+  color: #0f2e52;
+  -webkit-app-region: drag;
+}
+
+.desktop-titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.desktop-titlebar-brand strong {
+  font-size: 14px;
+}
+
+.desktop-titlebar-brand span:last-child {
+  max-width: 220px;
+  overflow: hidden;
+  color: #6c86a0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-titlebar-mark {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  color: #ffffff;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #75c7ff, #267fe6);
+  box-shadow: 0 10px 22px rgba(38, 127, 230, 0.22);
+}
+
+.desktop-window-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-window-controls button {
+  display: grid;
+  width: 38px;
+  height: 30px;
+  place-items: center;
+  color: #122748;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+}
+
+.desktop-window-controls button:hover {
+  background: rgba(107, 170, 225, 0.16);
+}
+
+.desktop-window-controls button.close:hover {
+  color: #ffffff;
+  background: #e55b68;
+}
+
 .app-shell {
   height: 100vh;
   min-height: 0;
   overflow: hidden;
 }
 
+.desktop-app-frame:not(.web-mode) .app-shell {
+  height: calc(100vh - 60px);
+  margin: 0 18px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 28px 90px rgba(71, 136, 196, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(20px);
+}
+
 .sidebar {
   min-height: 0;
   height: calc(100vh - 28px);
   overflow: hidden;
+}
+
+.desktop-app-frame:not(.web-mode) .sidebar {
+  height: calc(100vh - 60px);
+  margin: 0;
+  border-width: 0 1px 0 0;
+  border-radius: 24px 0 0 24px;
+  background: linear-gradient(180deg, rgba(249, 253, 255, 0.76), rgba(231, 245, 255, 0.62));
+  box-shadow: none;
+}
+
+.desktop-app-frame:not(.web-mode) .main {
+  height: calc(100vh - 60px);
+  padding: 24px;
 }
 
 .sidebar-companions {
@@ -1969,5 +2081,189 @@ body {
 
   .message-list {
     max-height: none;
+  }
+}
+
+/* v0.6-C: desktop shell polish for 所依. */
+.desktop-app-frame:not(.web-mode) .brand {
+  padding: 4px 2px 8px;
+}
+
+.desktop-app-frame:not(.web-mode) .brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+}
+
+.desktop-app-frame:not(.web-mode) .brand h1 {
+  font-size: 18px;
+}
+
+.desktop-app-frame:not(.web-mode) .brand p {
+  font-size: 12px;
+}
+
+.desktop-app-frame:not(.web-mode) .topbar {
+  min-height: 68px;
+  margin-bottom: 14px;
+  padding: 8px 6px 8px 10px;
+}
+
+.desktop-app-frame:not(.web-mode) .topbar h2 {
+  font-size: 25px;
+}
+
+.desktop-app-frame:not(.web-mode) .top-actions {
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(126, 184, 224, 0.26);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.46);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.desktop-app-frame:not(.web-mode) .top-actions .ghost-button {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.desktop-app-frame:not(.web-mode) .top-actions .ghost-button:hover {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.desktop-app-frame:not(.web-mode) .chat-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.desktop-app-frame:not(.web-mode) .chat-panel {
+  border-radius: 22px;
+  border-color: rgba(255, 255, 255, 0.76);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(244, 251, 255, 0.76)),
+    radial-gradient(circle at 18% 8%, rgba(137, 202, 255, 0.16), transparent 34%);
+  box-shadow:
+    0 22px 64px rgba(67, 135, 194, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.desktop-app-frame:not(.web-mode) .message {
+  border-radius: 16px;
+}
+
+.desktop-app-frame:not(.web-mode) .message.romance p {
+  border-radius: 15px;
+}
+
+.desktop-app-frame:not(.web-mode) .composer {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(111, 174, 221, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.desktop-app-frame:not(.web-mode) textarea,
+.desktop-app-frame:not(.web-mode) input,
+.desktop-app-frame:not(.web-mode) select {
+  border-radius: 12px;
+}
+
+.desktop-app-frame:not(.web-mode) .modal-panel,
+.desktop-app-frame:not(.web-mode) .workspace-panel,
+.desktop-app-frame:not(.web-mode) .data-action,
+.desktop-app-frame:not(.web-mode) .memory-card,
+.desktop-app-frame:not(.web-mode) .style-card,
+.desktop-app-frame:not(.web-mode) .trait-chip,
+.desktop-app-frame:not(.web-mode) .preset-button,
+.desktop-app-frame:not(.web-mode) .onboarding-option {
+  border-radius: 16px;
+}
+
+.desktop-app-frame:not(.web-mode) .companion-list {
+  gap: 8px;
+}
+
+.companion-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.companion-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #ffffff;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #8dd4ff, #277ee3);
+  box-shadow: 0 10px 22px rgba(39, 126, 227, 0.18);
+  font-weight: 800;
+}
+
+.companion-card-body {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.companion-card-body strong,
+.companion-card-body small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-app-frame:not(.web-mode) .companion-card {
+  min-height: 58px;
+  padding: 9px 10px;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+}
+
+.desktop-app-frame:not(.web-mode) .companion-card:hover,
+.desktop-app-frame:not(.web-mode) .companion-card.selected {
+  background: linear-gradient(135deg, rgba(230, 247, 255, 0.94), rgba(255, 255, 255, 0.78));
+  box-shadow: 0 12px 28px rgba(66, 143, 205, 0.13);
+}
+
+.desktop-app-frame:not(.web-mode) .full-width {
+  margin-top: 8px;
+  border-radius: 14px;
+}
+
+@media (max-width: 820px) {
+  .desktop-app-frame {
+    grid-template-rows: 42px minmax(0, 1fr);
+  }
+
+  .desktop-app-frame.web-mode {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .desktop-app-frame:not(.web-mode) .app-shell {
+    height: calc(100vh - 52px);
+    margin: 0 10px 10px;
+    border-radius: 18px;
+  }
+
+  .desktop-app-frame:not(.web-mode) .sidebar {
+    height: auto;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .desktop-app-frame:not(.web-mode) .main {
+    height: auto;
+    padding: 14px;
+  }
+
+  .desktop-titlebar-brand span:last-child {
+    max-width: 120px;
   }
 }

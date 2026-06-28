@@ -1,6 +1,6 @@
-# 桌面版发布说明
+# 所依桌面版发布说明
 
-v0.6-B 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版骨架。
+v0.6-C 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -12,6 +12,14 @@ npm run desktop:dist
 - `desktop:dir` 生成 unpacked 目录，便于快速验收。
 - `desktop:dist` 生成 Windows NSIS 安装包 `.exe`。
 - Web 版命令 `npm run dev`、`npm run build`、`启动AI伴侣.bat` 保留。
+- 本轮输出目录为 `release-v06c/`，安装包名形如 `所依 Setup 0.1.0.exe`。
+
+## 窗口与外观
+
+- 桌面版移除 Electron 默认系统菜单栏，不显示 `File / Edit / View / Window / Help`。
+- 桌面版使用无框窗口和自定义标题栏，右侧提供最小化、最大化/还原、关闭按钮。
+- 标题栏空白区域可拖拽，窗口按钮和应用内交互区域不可拖拽。
+- v0.6-C 只做桌面壳视觉、窗口控制、品牌改名和软件感收口；正式图标、代码签名、真实生产更新源和公开发布物料放到后续阶段。
 
 ## 数据与迁移
 
@@ -20,12 +28,12 @@ npm run desktop:dist
 推荐迁移方式：
 
 1. 在网页版设置中导出配置/记忆 JSON。
-2. 安装并打开桌面版。
+2. 安装并打开所依桌面版。
 3. 在桌面版设置中点击“从网页版导入备份”。
 4. 导入会覆盖桌面版的伴侣、长期记忆、风格摘要和去 Key 的服务商配置。
 5. API Key 不在导出文件里，桌面版需要重新填写。
 
-Electron 的 `appId` 固定为 `com.ai-companion.desktop`，`productName` 固定为 `AI伴侣`。升级同一应用不会清空 userData。
+Electron 的 `appId` 固定为 `com.ai-companion.desktop`。用户可见 `productName` 为 `所依`；为了保护 v0.6-B 已有桌面数据，内部 `userData` 目录继续使用原稳定目录。升级同一应用不会清空 userData。
 
 ## 更新机制
 
@@ -53,4 +61,3 @@ http://127.0.0.1:51730/updates/
 - 不把 API Key 写入代码、构建配置、更新元数据、日志或 release notes。
 - 导出 JSON 不包含 API Key，也不默认包含原始聊天记录。
 - 更新只替换应用代码，不删除 userData。
-

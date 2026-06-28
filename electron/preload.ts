@@ -22,5 +22,15 @@ contextBridge.exposeInMainWorld("aiCompanionDesktop", {
       return () => ipcRenderer.removeListener("updates:status", listener);
     },
   },
+  windowControls: {
+    minimize: () => ipcRenderer.invoke("desktop-window:minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("desktop-window:toggle-maximize"),
+    close: () => ipcRenderer.invoke("desktop-window:close"),
+    isMaximized: () => ipcRenderer.invoke("desktop-window:is-maximized"),
+    onMaximizedChange: (callback: (isMaximized: boolean) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, isMaximized: boolean) => callback(isMaximized);
+      ipcRenderer.on("desktop-window:maximized-change", listener);
+      return () => ipcRenderer.removeListener("desktop-window:maximized-change", listener);
+    },
+  },
 });
-

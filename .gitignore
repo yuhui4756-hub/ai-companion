@@ -6,6 +6,7 @@ dist/
 dist-electron/
 release/
 release-v06b/
+release-v06c/
 build/
 coverage/
 

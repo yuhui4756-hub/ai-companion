@@ -1,7 +1,7 @@
 appId: com.ai-companion.desktop
-productName: AI伴侣
+productName: 所依
 directories:
-  output: release-v06b
+  output: release-v06c
 files:
   - dist/**/*
   - dist-electron/**/*
@@ -16,11 +16,11 @@ win:
     - target: nsis
       arch:
         - x64
-  artifactName: "AI伴侣 Setup ${version}.${ext}"
+  artifactName: "所依 Setup ${version}.${ext}"
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: AI伴侣
+  shortcutName: 所依
