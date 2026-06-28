@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  Heart,
   KeyRound,
   Maximize2,
   MessageCircle,
@@ -80,6 +79,7 @@ import {
 } from "./storage/localStorage";
 import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
 import { getDesktopBridge, type DesktopInfo, type DesktopUpdatePayload } from "./desktop/desktopBridge";
+import suoyiIconUrl from "./assets/suoyi-icon.png";
 import type {
   AppView,
   ChatMessage,
@@ -1288,7 +1288,7 @@ export default function App() {
         <header className="desktop-titlebar">
           <div className="desktop-titlebar-brand">
             <span className="desktop-titlebar-mark">
-              <Heart size={15} />
+              <img src={suoyiIconUrl} alt="" aria-hidden="true" />
             </span>
             <strong>{APP_DISPLAY_NAME}</strong>
           </div>
@@ -1309,7 +1309,7 @@ export default function App() {
         <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <Heart size={21} />
+            <img src={suoyiIconUrl} alt="" aria-hidden="true" />
           </div>
           <div>
             <h1>{APP_DISPLAY_NAME}</h1>

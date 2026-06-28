@@ -802,3 +802,31 @@
 - 已从 `release-v06d/win-unpacked/所依.exe` 和 `release-v06d/suoyi-setup-0.1.0.exe` 直接提取关联图标，确认均为用户提供的所依图标，不再是 Electron 默认图标。
 - 已执行 `npm run build`、`npx tsc --noEmit`、`npm run electron:build-main`，均通过。
 - 已执行敏感信息扫描，命中项仅为历史日志和安全校验规则说明，未发现真实密钥。
+
+## 2026-06-29 v0.6-E Release 前视觉小修通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.6-E 正式 Release 前视觉与发布准备小修复验。
+- 结论：通过，可作为第一版 Release 候选资产。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- 桌面图标主体已放大，`build/icons/icon.ico` 包含 16、24、32、48、64、128、256 多尺寸，修正桌面快捷方式图标显得偏小的问题。
+- 应用内标题栏和品牌区两个旧爱心图标已替换为所依应用图标，运行态加载 `dist/assets/suoyi-icon-*.png`。
+- `release-v06d/win-unpacked/所依.exe` 和 `release-v06d/suoyi-setup-0.1.0.exe` 均可提取到非 Electron 默认关联图标。
+- v0.6-D 必须保留项未回退：更新小圆点规则、GitHub provider、源码 index 守卫、显式导入备份入口、Electron 安全边界均保留。
+- Release 候选资产已重新生成：`release-v06d/suoyi-setup-0.1.0.exe`、`release-v06d/suoyi-setup-0.1.0.exe.blockmap`、`release-v06d/latest.yml`。
+
+### 总控最终确认
+
+- 已执行构建前守卫：`node scripts/verify-source-index.cjs` 通过。
+- 已执行最终构建：`npm run build` 通过。
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行 Electron 主进程编译：`npm run electron:build-main` 通过。
+- 已执行桌面安装包构建：`npm run desktop:dist` 通过。
+- 已执行敏感信息扫描：命中项仅为历史日志和安全校验规则说明，未发现真实 API Key、Bearer token、x-api-key 或 GitHub token。
+- 工作区修改文件符合 v0.6-E 范围：`build/icons/icon.ico`、`build/icons/icon.png`、`docs/DESKTOP_RELEASE.md`、`src/App.tsx`、`src/styles.css`、`src/assets/suoyi-icon.png`。
+- `release-v06d`、`dist`、`dist-electron` 等构建产物不进入源码提交；GitHub Release 上传需单独确认后执行。

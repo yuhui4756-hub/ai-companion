@@ -1,6 +1,6 @@
 # 所依桌面版发布说明
 
-v0.6-D 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
+v0.6-E 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -19,9 +19,10 @@ npm run desktop:dist
 - 图标源图来自 `D:\QQ文件\9F948C72-FE6D-4892-A8E5-3A36E3F3CBC5.png`。
 - 生成资源保存在 `build/icons/`：
   - `source.png`：原始源图副本。
-  - `icon.png`：规范化 1024x1024 PNG。
+  - `icon.png`：规范化 1024x1024 PNG，已裁掉过大的透明边距，避免 Windows 桌面快捷方式图标主体显得偏小。
   - `icon.ico`：Windows/Electron/NSIS 图标，包含 16、24、32、48、64、128、256 多尺寸。
 - `electron-builder.yml` 已配置 `win.icon`、`nsis.installerIcon`、`nsis.uninstallerIcon`，主窗口也设置了同一图标。
+- 应用内品牌区和标题栏的小图标也复用本地图标资源，不再使用旧爱心标识。
 
 ## 窗口与外观
 
@@ -71,11 +72,13 @@ publish:
 - `suoyi-setup-0.1.0.exe.blockmap`
 - `latest.yml`
 
+开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。正式公开发布由总控确认后，在 GitHub Releases 中上传以上三个文件；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
+
 `package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.0`，再发布 `0.1.1`，不要用同版本测试更新。
 
 ## 代码签名
 
-当前没有配置 Windows 代码签名证书。本地安装包可以测试，但正式分发时 Windows SmartScreen 可能提示未知发布者。不要引导用户关闭安全防护；后续 v0.6-D/P1 或更晚阶段再评估代码签名。
+当前没有配置 Windows 代码签名证书。本地安装包可以测试，但正式分发时 Windows SmartScreen 可能提示未知发布者。不要引导用户关闭安全防护；后续阶段再评估代码签名。
 
 ## 隐私边界
 
