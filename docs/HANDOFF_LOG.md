@@ -830,3 +830,16 @@
 - 已执行敏感信息扫描：命中项仅为历史日志和安全校验规则说明，未发现真实 API Key、Bearer token、x-api-key 或 GitHub token。
 - 工作区修改文件符合 v0.6-E 范围：`build/icons/icon.ico`、`build/icons/icon.png`、`docs/DESKTOP_RELEASE.md`、`src/App.tsx`、`src/styles.css`、`src/assets/suoyi-icon.png`。
 - `release-v06d`、`dist`、`dist-electron` 等构建产物不进入源码提交；GitHub Release 上传需单独确认后执行。
+
+## 2026-06-29 v0.1.0 GitHub Release 已创建
+
+### 总控发布记录
+
+- 已在 `yuhui4756-hub/ai-companion` 创建正式 Release：`v0.1.0`，标题为“所依 v0.1.0”。
+- Release 地址：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.0`。
+- 已上传三个 Release 资产：`suoyi-setup-0.1.0.exe`、`suoyi-setup-0.1.0.exe.blockmap`、`latest.yml`。
+- 已通过 GitHub API 核对远端资产大小和 SHA256，均与本地 `release-v06d` 产物一致。
+- 已通过 `gh release download` 下载远端 `latest.yml` 并与本地文件 hash 对比一致。
+- 当前仓库可见性为 `PRIVATE`。因此普通未登录公网访问 Release 下载地址会返回 404，桌面应用内不带 GitHub token 的自动更新也不能从该私有仓库直接获取更新。
+- 更新器错误脱敏逻辑会把 404/发布源不可用处理为普通提示，不暴露 token、堆栈或敏感参数。
+- 若要让其他用户直接下载并让自动更新源可用，需要后续由总控在用户确认后将仓库公开，或改用公开 HTTPS/GitHub Releases 发布源。
