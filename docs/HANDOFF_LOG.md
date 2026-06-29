@@ -880,3 +880,32 @@
 - 源码/配置/文档密钥扫描未发现真实 API Key、Bearer token、x-api-key 或 GitHub token。
 - `curl.exe` 在本机验证 GitHub 资产时遇到 Windows 证书吊销检查网络错误，但 `gh release view` 与 PowerShell `Invoke-WebRequest` 已验证 Release 元数据和 `latest.yml` 公开可读；真实应用更新下载也已成功。
 - 临时测试安装目录 `output/v011-update-test` 已清理；未将 `release-v06d`、`dist`、`dist-electron` 等构建产物提交进源码仓库。
+
+## 2026-06-29 v0.2 channel-adapter + OneBot 本地实验骨架通过
+
+### 测试验收结论
+
+- 测试验收线程 `019ef2fc-69dc-7153-ad81-bad7d7c3b1f3` 已完成 v0.2 channel-adapter + `qq-onebot-local` 实验架构骨架复验。
+- 结论：通过。
+- 阻塞问题：无。
+- 普通问题：无。
+
+### 已通过项摘要
+
+- `ChannelKind` 已包含 `desktop-local`、`qq-onebot-local`、`qq-official-bot`、`wechat-official`。
+- 统一 incoming/outgoing/conversation key 类型已包含渠道、用户/会话/伴侣外部 ID、`contentSegments`、`rawEventSummary` 等字段。
+- `src/channel-adapter/onebotLocal.ts` 已提供默认配置、mock 事件生成、OneBot 事件归一化、响应决策、会话隔离 key、outgoing payload preview、token/endpoint 脱敏和状态文案映射。
+- mock 纯函数覆盖私聊、群聊 @、群聊未 @、自我消息/echo、重复 `message_id` 去重，均符合预期。
+- 设置页新增“OneBot 本地连接（实验）”区域，明确这不是腾讯官方机器人通道，只连接本机 OneBot/NapCat 服务，不保存 QQ 密码、Cookie 或扫码凭证，不代登录。
+- 群聊默认策略为关闭；mock 群聊 @ 场景只临时使用 `mention-or-wake`，不改变默认配置。
+- mock 输出仅展示 `send_private_msg` / `send_group_msg` payload preview 或 `{ action: "none" }`，没有真实网络发送。
+- 本轮未连接真实 NapCat，未要求 QQ 账号、扫码、Cookie 或 token；符合本地实验骨架范围。
+- 导出仍只包含配置脱敏摘要、伴侣、记忆和风格摘要，不包含 OneBot access token、QQ 凭证或原始 messages。
+
+### 总控最终确认
+
+- 已执行类型检查：`npx tsc --noEmit` 通过。
+- 已执行最终构建：`npm run build` 通过。
+- 已执行敏感信息扫描：未发现真实 API Key、Bearer token、x-api-key、GitHub token 或 QQ Cookie 常见字段。
+- 工作区修改文件符合 v0.2 OneBot 本地实验骨架范围：`README.md`、`src/App.tsx`、`src/channel-adapter/*`、`src/storage/localStorage.ts`、`src/styles.css`。
+- 下一阶段若推进真实 NapCat 联调，必须继续坚持不记录 QQ 密码/Cookie/扫码凭证、不要求用户在线程提供 token、不把 NapCat 打包进安装包、先低频私聊自测。

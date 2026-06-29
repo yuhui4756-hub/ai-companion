@@ -1095,6 +1095,68 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.onebot-experiment {
+  gap: 12px;
+}
+
+.onebot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.toggle-row {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 9px;
+}
+
+.toggle-row input {
+  width: 16px;
+  height: 16px;
+  box-shadow: none;
+}
+
+.onebot-summary,
+.onebot-mock-result {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text-soft, #547083);
+  border: 1px solid rgba(92, 164, 216, 0.34);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.onebot-summary span,
+.onebot-mock-result span {
+  overflow-wrap: anywhere;
+}
+
+.onebot-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.onebot-mock-result strong {
+  color: #14354c;
+}
+
+.onebot-mock-result pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  color: #1f3b52;
+  border-radius: 12px;
+  background: rgba(234, 246, 255, 0.78);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .update-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1546,6 +1608,10 @@ label {
   }
 
   .data-action {
+    grid-template-columns: 1fr;
+  }
+
+  .onebot-grid {
     grid-template-columns: 1fr;
   }
 }

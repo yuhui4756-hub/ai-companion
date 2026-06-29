@@ -1,10 +1,10 @@
 import type { ChannelAdapter } from "./types";
 
 export const webAdapter: ChannelAdapter = {
-  name: "web",
+  kind: "desktop-local",
+  name: "desktop-local",
   normalizeIncoming(input) {
     return {
-      role: "user",
       content: input.trim(),
     };
   },

@@ -63,6 +63,7 @@ import {
   loadCompanions,
   loadMemories,
   loadMessagesByCompanionId,
+  loadOneBotLocalConfig,
   loadCompanionOnboardingState,
   loadPrivacyNoticeAck,
   loadProviderConfig,
@@ -72,6 +73,7 @@ import {
   saveCompanions,
   saveMemories,
   saveMessagesByCompanionId,
+  saveOneBotLocalConfig,
   saveCompanionOnboardingState,
   savePrivacyNoticeAck,
   saveProviderConfig,
@@ -80,6 +82,16 @@ import {
 import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
 import { getDesktopBridge, type DesktopInfo, type DesktopUpdatePayload } from "./desktop/desktopBridge";
 import suoyiIconUrl from "./assets/suoyi-icon.png";
+import {
+  createOneBotMockEvent,
+  getOneBotStatusMessage,
+  maskOneBotToken,
+  normalizeOneBotMockEvent,
+  sanitizeOneBotEndpoint,
+  type OneBotMockScenario,
+  type OneBotNormalizeResult,
+} from "./channel-adapter/onebotLocal";
+import type { OneBotLocalConfig } from "./channel-adapter/types";
 import type {
   AppView,
   ChatMessage,
@@ -247,6 +259,7 @@ export default function App() {
   const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
   const [activeCompanionId, setActiveCompanionId] = useState<string>(() => initialActiveCompanionId);
   const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => loadProviderConfig());
+  const [oneBotConfig, setOneBotConfig] = useState<OneBotLocalConfig>(() => loadOneBotLocalConfig());
   const [messagesByCompanionId, setMessagesByCompanionId] = useState<Record<string, ChatMessage[]>>(
     () => initialMessagesByCompanionId,
   );
@@ -269,6 +282,8 @@ export default function App() {
   const [privacyNoticeAck, setPrivacyNoticeAck] = useState(() => initialPrivacyNoticeAck);
   const [isPrivacyNoticeOpen, setIsPrivacyNoticeOpen] = useState(() => !initialPrivacyNoticeAck.acknowledged);
   const [dataActionMessage, setDataActionMessage] = useState("");
+  const [oneBotActionMessage, setOneBotActionMessage] = useState("");
+  const [oneBotMockResult, setOneBotMockResult] = useState<OneBotNormalizeResult | null>(null);
   const [onboardingState, setOnboardingState] = useState(() => initialOnboardingState);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => shouldAutoOpenOnboarding);
   const [isOnboardingManuallyOpened, setIsOnboardingManuallyOpened] = useState(false);
@@ -438,6 +453,33 @@ export default function App() {
     saveProviderConfig(providerConfig);
     setSettingsSaved(true);
     setError("");
+  }
+
+  function updateOneBotConfig<K extends keyof OneBotLocalConfig>(field: K, value: OneBotLocalConfig[K]) {
+    setOneBotActionMessage("");
+    setOneBotConfig((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function saveOneBotExperimentConfig() {
+    saveOneBotLocalConfig(oneBotConfig);
+    const status = oneBotConfig.enabled ? getOneBotStatusMessage("not-configured") : getOneBotStatusMessage("disconnected");
+    setOneBotActionMessage(
+      oneBotConfig.enabled
+        ? `已保存实验配置。${status.message} 当前 token：${maskOneBotToken(oneBotConfig.accessToken)}。`
+        : "已保存实验配置，OneBot 本地连接保持关闭。",
+    );
+  }
+
+  function runOneBotMockScenario(scenario: OneBotMockScenario) {
+    const mockConfig =
+      scenario === "group-mention" ? { ...oneBotConfig, groupPolicy: "mention-or-wake" as const } : oneBotConfig;
+    const event = createOneBotMockEvent(scenario, mockConfig);
+    const result = normalizeOneBotMockEvent(event, mockConfig);
+    setOneBotMockResult(result);
+    setOneBotActionMessage(result.reason);
   }
 
   function updateCompanion(id: string, patch: Partial<CompanionProfile>) {
@@ -1924,6 +1966,172 @@ export default function App() {
                 <button className="text-button desktop-debug-update" type="button" onClick={() => checkForUpdates(true)}>
                   模拟新版提示
                 </button>
+              )}
+            </div>
+
+            <div className="settings-block onebot-experiment">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Experiment</p>
+                  <h3>OneBot 本地连接（实验）</h3>
+                </div>
+              </div>
+              <div className="warning-box">
+                <p>
+                  这是实验性本地 QQ 接入骨架，不是腾讯官方机器人通道。所依只连接你本机已经运行的 OneBot/NapCat 服务，
+                  不保存 QQ 密码、Cookie、扫码凭证，也不会代你登录 QQ。自用测试建议使用专门 QQ 号，发送频率过高可能受 QQ 风控影响。
+                </p>
+              </div>
+              <div className="onebot-grid">
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={oneBotConfig.enabled}
+                    onChange={(event) => updateOneBotConfig("enabled", event.target.checked)}
+                  />
+                  启用实验功能
+                </label>
+                <label>
+                  连接方式
+                  <select
+                    value={oneBotConfig.connectionMode}
+                    onChange={(event) =>
+                      updateOneBotConfig(
+                        "connectionMode",
+                        event.target.value as OneBotLocalConfig["connectionMode"],
+                      )
+                    }
+                  >
+                    <option value="forward-websocket">正向 WebSocket</option>
+                    <option value="http">HTTP</option>
+                  </select>
+                </label>
+                <label>
+                  WebSocket 地址
+                  <input
+                    value={oneBotConfig.wsUrl}
+                    onChange={(event) => updateOneBotConfig("wsUrl", event.target.value)}
+                    placeholder="ws://127.0.0.1:3001"
+                  />
+                </label>
+                <label>
+                  HTTP 地址
+                  <input
+                    value={oneBotConfig.httpBaseUrl}
+                    onChange={(event) => updateOneBotConfig("httpBaseUrl", event.target.value)}
+                    placeholder="http://127.0.0.1:3000"
+                  />
+                </label>
+                <label>
+                  access token
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={oneBotConfig.accessToken}
+                    onChange={(event) => updateOneBotConfig("accessToken", event.target.value)}
+                    placeholder="只保存 OneBot 连接 token，不是 QQ 凭证"
+                  />
+                </label>
+                <label>
+                  机器人 QQ / self_id
+                  <input
+                    value={oneBotConfig.botSelfId}
+                    onChange={(event) => updateOneBotConfig("botSelfId", event.target.value)}
+                    placeholder="例如 10001，可留空用 mock 默认值"
+                  />
+                </label>
+                <label>
+                  伴侣外部标识
+                  <input
+                    value={oneBotConfig.companionExternalId}
+                    onChange={(event) => updateOneBotConfig("companionExternalId", event.target.value)}
+                    placeholder="通常填伴侣使用的 QQ 号"
+                  />
+                </label>
+                <label>
+                  默认绑定伴侣
+                  <select
+                    value={oneBotConfig.defaultCompanionId}
+                    onChange={(event) => updateOneBotConfig("defaultCompanionId", event.target.value)}
+                  >
+                    <option value="">暂不绑定</option>
+                    {companions.map((companion) => (
+                      <option key={companion.id} value={companion.id}>
+                        {companionDisplayName(companion)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={oneBotConfig.privateChatEnabled}
+                    onChange={(event) => updateOneBotConfig("privateChatEnabled", event.target.checked)}
+                  />
+                  私聊默认响应
+                </label>
+                <label>
+                  群聊策略
+                  <select
+                    value={oneBotConfig.groupPolicy}
+                    onChange={(event) =>
+                      updateOneBotConfig("groupPolicy", event.target.value as OneBotLocalConfig["groupPolicy"])
+                    }
+                  >
+                    <option value="disabled">关闭群聊响应</option>
+                    <option value="mention-or-wake">仅 @ 或唤醒词响应</option>
+                  </select>
+                </label>
+                <label>
+                  唤醒词
+                  <input
+                    value={oneBotConfig.wakeWords.join("，")}
+                    onChange={(event) =>
+                      updateOneBotConfig(
+                        "wakeWords",
+                        event.target.value
+                          .split(/[，,]/)
+                          .map((word) => word.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                    placeholder="所依，小依"
+                  />
+                </label>
+              </div>
+              <div className="onebot-summary">
+                <span>WS：{sanitizeOneBotEndpoint(oneBotConfig.wsUrl)}</span>
+                <span>HTTP：{sanitizeOneBotEndpoint(oneBotConfig.httpBaseUrl)}</span>
+                <span>Token：{maskOneBotToken(oneBotConfig.accessToken)}</span>
+              </div>
+              <div className="composer-actions onebot-actions">
+                <button className="ghost-button" type="button" onClick={saveOneBotExperimentConfig}>
+                  <Save size={16} />
+                  保存实验配置
+                </button>
+                <button className="ghost-button" type="button" onClick={() => runOneBotMockScenario("private")}>
+                  私聊 mock
+                </button>
+                <button className="ghost-button" type="button" onClick={() => runOneBotMockScenario("group-mention")}>
+                  群聊 @ mock
+                </button>
+                <button className="ghost-button" type="button" onClick={() => runOneBotMockScenario("group-no-mention")}>
+                  群聊未 @ mock
+                </button>
+                <button className="ghost-button" type="button" onClick={() => runOneBotMockScenario("self-echo")}>
+                  自我消息 mock
+                </button>
+              </div>
+              {oneBotActionMessage && <p className="inline-status">{oneBotActionMessage}</p>}
+              {oneBotMockResult && (
+                <div className="onebot-mock-result">
+                  <strong>{oneBotMockResult.incoming.shouldRespond ? "会触发回复" : "不会触发回复"}</strong>
+                  <span>会话 key：{oneBotMockResult.conversationKey}</span>
+                  <span>消息摘要：{oneBotMockResult.incoming.rawEventSummary}</span>
+                  <span>归一化内容：{oneBotMockResult.incoming.content}</span>
+                  <span>隔离说明：v0.3 将按伴侣 QQ / 用户 QQ / 会话 key 隔离聊天与记忆，避免群成员和不同伴侣互相污染。</span>
+                  <pre>{JSON.stringify(oneBotMockResult.outgoingPreview?.payloadPreview ?? { action: "none" }, null, 2)}</pre>
+                </div>
               )}
             </div>
 

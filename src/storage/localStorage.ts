@@ -13,6 +13,8 @@ import type {
   SyncPolicy,
   UserMemory,
 } from "../types";
+import { defaultOneBotLocalConfig } from "../channel-adapter/onebotLocal";
+import type { OneBotLocalConfig } from "../channel-adapter/types";
 
 const STORAGE_KEYS = {
   config: "ai-companion:provider-config",
@@ -25,6 +27,7 @@ const STORAGE_KEYS = {
   styleSummaries: "ai-companion:style-summaries",
   privacyNoticeAck: "ai-companion:privacy-notice-ack:v1",
   companionOnboarding: "ai-companion:companion-onboarding:v1",
+  oneBotLocalConfig: "ai-companion:onebot-local-config:v1",
 } as const;
 
 export const defaultProviderConfig: ModelProviderConfig = {
@@ -136,6 +139,19 @@ export function loadProviderConfig(): ModelProviderConfig {
 
 export function saveProviderConfig(config: ModelProviderConfig): void {
   writeJSON(STORAGE_KEYS.config, config);
+}
+
+export function loadOneBotLocalConfig(): OneBotLocalConfig {
+  const stored = readJSON<Partial<OneBotLocalConfig>>(STORAGE_KEYS.oneBotLocalConfig, {});
+  return {
+    ...defaultOneBotLocalConfig,
+    ...stored,
+    wakeWords: Array.isArray(stored.wakeWords) ? stored.wakeWords : defaultOneBotLocalConfig.wakeWords,
+  };
+}
+
+export function saveOneBotLocalConfig(config: OneBotLocalConfig): void {
+  writeJSON(STORAGE_KEYS.oneBotLocalConfig, config);
 }
 
 export function loadMemories(): UserMemory[] {
