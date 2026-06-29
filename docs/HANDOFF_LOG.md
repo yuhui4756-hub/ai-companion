@@ -854,3 +854,29 @@
 - 已匿名下载 `latest.yml` 并与本地 `release-v06d/latest.yml` hash 对比一致。
 - 已验证 `suoyi-setup-0.1.0.exe` 和 `suoyi-setup-0.1.0.exe.blockmap` 下载地址返回 200，公开下载源已可用。
 - 已更新 `README.md`，将公开安装包下载入口、v0.1.0 Release 页面、桌面版状态、自动更新边界和本地数据说明同步到当前发布状态。
+
+## 2026-06-29 v0.1.1 自动更新链路验证通过
+
+### 总控发布记录
+
+- 已将源码版本升级到 `0.1.1`，并提交推送：`1c25d59 Prepare Suoyi v0.1.1 update test`。
+- 已重新构建 Release 资产：`release-v06d/suoyi-setup-0.1.1.exe`、`release-v06d/suoyi-setup-0.1.1.exe.blockmap`、`release-v06d/latest.yml`。
+- 已创建公开 GitHub Release：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.1`。
+- 已上传三个 Release 资产：`suoyi-setup-0.1.1.exe`、`suoyi-setup-0.1.1.exe.blockmap`、`latest.yml`。
+- 已验证 `latest.yml` 可从公开 Release 地址读取，内容版本为 `0.1.1`，指向 `suoyi-setup-0.1.1.exe`。
+- 已从本地隔离目录安装 `v0.1.0`，运行后通过桌面更新桥接检测到 `v0.1.1`，状态为 `available`。
+- 已触发更新下载，状态变为 `downloaded`。
+- 已触发重启安装，重新启动后桌面桥接返回 `version: 0.1.1`，更新状态为 `not-available`。
+- 升级前写入的本地测试 marker 在升级后仍可读取，说明同一 appId/userData 下更新未清空本地数据；测试 marker 已清理。
+- 用户本机也确认界面显示为 `v0.1.1`。
+
+### 验证命令与边界
+
+- `node scripts/verify-source-index.cjs` 通过。
+- `npm run build` 通过。
+- `npx tsc --noEmit` 通过。
+- `npm run electron:build-main` 通过。
+- `npm run desktop:dist` 通过。
+- 源码/配置/文档密钥扫描未发现真实 API Key、Bearer token、x-api-key 或 GitHub token。
+- `curl.exe` 在本机验证 GitHub 资产时遇到 Windows 证书吊销检查网络错误，但 `gh release view` 与 PowerShell `Invoke-WebRequest` 已验证 Release 元数据和 `latest.yml` 公开可读；真实应用更新下载也已成功。
+- 临时测试安装目录 `output/v011-update-test` 已清理；未将 `release-v06d`、`dist`、`dist-electron` 等构建产物提交进源码仓库。
