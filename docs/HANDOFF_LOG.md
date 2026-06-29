@@ -853,3 +853,4 @@
 - 公开后已验证仓库可见性为 `PUBLIC`，Release 页面 `https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.0` 返回 200。
 - 已匿名下载 `latest.yml` 并与本地 `release-v06d/latest.yml` hash 对比一致。
 - 已验证 `suoyi-setup-0.1.0.exe` 和 `suoyi-setup-0.1.0.exe.blockmap` 下载地址返回 200，公开下载源已可用。
+- 已更新 `README.md`，将公开安装包下载入口、v0.1.0 Release 页面、桌面版状态、自动更新边界和本地数据说明同步到当前发布状态。
