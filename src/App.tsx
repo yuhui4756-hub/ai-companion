@@ -1914,7 +1914,7 @@ export default function App() {
               </div>
               <p className="muted">
                 {desktopInfo
-                  ? `当前版本 ${desktopInfo.version}。数据保存在 Electron userData 目录，升级同一 appId 不会清空。`
+                  ? `当前版本 ${desktopInfo.version}。自动更新验证版；升级同一 appId 不会清空本地数据。`
                   : "浏览器版不会显示桌面更新入口。"}
               </p>
               {desktopInfo?.userDataPath && (

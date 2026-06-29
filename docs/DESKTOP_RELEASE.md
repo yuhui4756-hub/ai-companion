@@ -1,6 +1,6 @@
 # 所依桌面版发布说明
 
-v0.6-E 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
+v0.1.1 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -12,7 +12,7 @@ npm run desktop:dist
 - `desktop:dir` 生成 unpacked 目录，便于快速验收。
 - `desktop:dist` 生成 Windows NSIS 安装包 `.exe`、`latest.yml` 和 blockmap。
 - Web 版命令 `npm run dev`、`npm run build`、`启动AI伴侣.bat` 保留。
-- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.0.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
+- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.1.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
 
 ## 图标
 
@@ -68,8 +68,8 @@ publish:
 
 公开 release artifacts 至少保留：
 
-- `suoyi-setup-0.1.0.exe`
-- `suoyi-setup-0.1.0.exe.blockmap`
+- `suoyi-setup-0.1.1.exe`
+- `suoyi-setup-0.1.1.exe.blockmap`
 - `latest.yml`
 
 开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。正式公开发布由总控确认后，在 GitHub Releases 中上传以上三个文件；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
