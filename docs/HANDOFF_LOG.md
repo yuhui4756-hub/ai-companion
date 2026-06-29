@@ -843,3 +843,13 @@
 - 当前仓库可见性为 `PRIVATE`。因此普通未登录公网访问 Release 下载地址会返回 404，桌面应用内不带 GitHub token 的自动更新也不能从该私有仓库直接获取更新。
 - 更新器错误脱敏逻辑会把 404/发布源不可用处理为普通提示，不暴露 token、堆栈或敏感参数。
 - 若要让其他用户直接下载并让自动更新源可用，需要后续由总控在用户确认后将仓库公开，或改用公开 HTTPS/GitHub Releases 发布源。
+
+## 2026-06-29 仓库公开与 Release 下载验证通过
+
+### 总控发布记录
+
+- 用户确认公开仓库后，已将 `yuhui4756-hub/ai-companion` 从 `PRIVATE` 改为 `PUBLIC`。
+- 公开前已扫描当前源码、历史提交、敏感文件名和 GitHub Secrets，未发现真实 `sk-*`、Bearer token、GitHub token、x-api-key 等密钥线索。
+- 公开后已验证仓库可见性为 `PUBLIC`，Release 页面 `https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.0` 返回 200。
+- 已匿名下载 `latest.yml` 并与本地 `release-v06d/latest.yml` hash 对比一致。
+- 已验证 `suoyi-setup-0.1.0.exe` 和 `suoyi-setup-0.1.0.exe.blockmap` 下载地址返回 200，公开下载源已可用。
