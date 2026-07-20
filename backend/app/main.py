@@ -7,6 +7,7 @@ from typing import Iterator
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from .core import get_core_counts, get_core_status, load_core_snapshot, save_core_snapshot
 from .db import SCHEMA_VERSION, connect, get_db_path_label, init_db
 from .knowledge import (
     DuplicateKnowledgeSourceError,
@@ -18,6 +19,9 @@ from .knowledge import (
     soft_delete_source,
 )
 from .schemas import (
+    CoreMigrationResponse,
+    CoreSnapshot,
+    CoreStatusResponse,
     CreateKnowledgeSourceRequest,
     DbStatusResponse,
     DeleteKnowledgeSourceResponse,
@@ -44,7 +48,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "null"],
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -77,7 +81,40 @@ def db_status(connection: sqlite3.Connection = Depends(get_connection)) -> DbSta
         activeSourceCount=active_source_count,
         chunkCount=chunk_count,
         activeChunkCount=active_chunk_count,
+        coreCounts=get_core_counts(connection),
     )
+
+
+@app.get("/core/status", response_model=CoreStatusResponse)
+def core_status(connection: sqlite3.Connection = Depends(get_connection)) -> CoreStatusResponse:
+    return get_core_status(connection, SCHEMA_VERSION)
+
+
+@app.get("/core/snapshot", response_model=CoreSnapshot)
+def get_core_snapshot(connection: sqlite3.Connection = Depends(get_connection)) -> CoreSnapshot:
+    return load_core_snapshot(connection)
+
+
+@app.put("/core/snapshot", response_model=CoreMigrationResponse)
+def put_core_snapshot(
+    payload: CoreSnapshot,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> CoreMigrationResponse:
+    return save_core_snapshot(connection, payload, source="renderer-auto", replace=True, record_migration=False)
+
+
+@app.post("/core/migrations/local-storage-snapshot", response_model=CoreMigrationResponse)
+def post_local_storage_snapshot_migration(
+    payload: CoreSnapshot,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> CoreMigrationResponse:
+    try:
+        return save_core_snapshot(connection, payload, source="localStorage", replace=False, record_migration=True)
+    except sqlite3.Error as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="核心数据迁移失败，已保留 localStorage fallback。",
+        ) from error
 
 
 @app.post(

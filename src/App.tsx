@@ -59,11 +59,19 @@ import {
 } from "./memory/memory";
 import {
   deletePythonKnowledgeSource,
+  getPythonBackendBaseURL,
   getPythonBackendHealth,
+  getPythonCoreSnapshot,
+  getPythonCoreStatus,
+  importLocalStorageCoreSnapshot,
   importPythonKnowledgeSource,
   listPythonKnowledgeSources,
   PythonBackendError,
+  savePythonCoreSnapshot,
   searchPythonKnowledge,
+  setPythonBackendBaseURL,
+  type CoreSnapshot,
+  type CoreStatus,
   type PythonBackendHealth,
   type PythonKnowledgeSource,
 } from "./backend/pythonBackendClient";
@@ -113,6 +121,13 @@ const memoryVisibleActions = new Set(["create", "merge", "replace"]);
 const knowledgeSourceTypeLabels: Record<KnowledgeSourceType, string> = {
   manual_text: "文本",
   markdown: "Markdown",
+};
+type CoreStorageMode = "checking" | "localStorage" | "sqlite";
+type CoreStorageUiStatus = {
+  mode: CoreStorageMode;
+  message: string;
+  lastSnapshotHash?: string;
+  counts?: CoreStatus["counts"];
 };
 const romanceGenderOptions: Array<{ value: RomanceGender; label: string; description: string }> = [
   {
@@ -289,6 +304,10 @@ export default function App() {
     dbReady: false,
     message: "正在检查本地 Python 后端...",
   });
+  const [coreStorageStatus, setCoreStorageStatus] = useState<CoreStorageUiStatus>({
+    mode: "checking",
+    message: "正在检查本地 SQLite 数据层...",
+  });
   const [knowledgeDraft, setKnowledgeDraft] = useState({
     title: "",
     sourceType: "manual_text" as KnowledgeSourceType,
@@ -339,6 +358,10 @@ export default function App() {
   const [isDesktopWindowMaximized, setIsDesktopWindowMaximized] = useState(false);
   const responseSequenceRef = useRef(0);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const coreStorageModeRef = useRef<CoreStorageMode>("checking");
+  const isHydratingCoreSnapshotRef = useRef(false);
+  const isSyncingCoreSnapshotRef = useRef(false);
+  const coreSnapshotSaveTimerRef = useRef<number | null>(null);
 
   const activeCompanion = useMemo(
     () => getCompanionProfile(activeCompanionId, companions),
@@ -404,14 +427,184 @@ export default function App() {
   const editorPromptIssues =
     editorPromptValidation.issues.length > 0 ? editorPromptValidation.issues : editorCompanion.promptValidationIssues ?? [];
 
-  useEffect(() => appRepository.saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
-  useEffect(() => appRepository.saveCompanions(companions), [companions]);
-  useEffect(() => appRepository.saveMessagesByCompanionId(messagesByCompanionId), [messagesByCompanionId]);
-  useEffect(() => appRepository.saveMemories(memories), [memories]);
-  useEffect(() => appRepository.saveStyleSummaries(styleSummaries), [styleSummaries]);
+  function buildCoreSnapshotFromState(): CoreSnapshot {
+    const { apiKey: _apiKey, ...providerConfigWithoutApiKey } = providerConfig;
+    return {
+      snapshotVersion: "core-snapshot-v1",
+      activeCompanionId: activeCompanion.id,
+      providerConfigWithoutApiKey: {
+        ...providerConfigWithoutApiKey,
+        apiKeyRemoved: true,
+      },
+      companions,
+      messagesByCompanionId,
+      memories,
+      styleSummaries,
+    };
+  }
+
+  function applyCoreSnapshotFromBackend(snapshot: CoreSnapshot) {
+    isHydratingCoreSnapshotRef.current = true;
+    setCompanions(snapshot.companions.length > 0 ? snapshot.companions : companions);
+    setActiveCompanionId(snapshot.activeCompanionId || activeCompanion.id);
+    setMessagesByCompanionId(snapshot.messagesByCompanionId ?? {});
+    setMemories(snapshot.memories ?? []);
+    setStyleSummaries(snapshot.styleSummaries ?? []);
+    setProviderConfig((current) => {
+      const next = {
+        ...current,
+        providerName: snapshot.providerConfigWithoutApiKey.providerName || current.providerName,
+        baseURL: snapshot.providerConfigWithoutApiKey.baseURL || current.baseURL,
+        model: snapshot.providerConfigWithoutApiKey.model || current.model,
+        apiKey: current.apiKey,
+      };
+      appRepository.saveProviderConfig(next);
+      return next;
+    });
+    window.setTimeout(() => {
+      isHydratingCoreSnapshotRef.current = false;
+    }, 0);
+  }
+
+  function setCoreStatus(next: CoreStorageUiStatus) {
+    coreStorageModeRef.current = next.mode;
+    setCoreStorageStatus(next);
+  }
+
+  async function syncPythonBackendEndpointFromDesktop() {
+    const desktopPythonBackend = getDesktopBridge()?.pythonBackend;
+    if (!desktopPythonBackend) {
+      setPythonBackendBaseURL(null);
+      return;
+    }
+    try {
+      const status = await desktopPythonBackend.getStatus();
+      if (status.endpoint) {
+        setPythonBackendBaseURL(status.endpoint);
+      } else {
+        const endpoint = await desktopPythonBackend.getEndpoint();
+        setPythonBackendBaseURL(endpoint);
+      }
+    } catch {
+      setPythonBackendBaseURL(null);
+    }
+  }
+
+  async function activateCoreStorageFromBackend() {
+    if (isSyncingCoreSnapshotRef.current || coreStorageModeRef.current === "sqlite") return;
+    isSyncingCoreSnapshotRef.current = true;
+    try {
+      const status = await getPythonCoreStatus();
+      const hasExistingCoreData =
+        status.latestMigrationStatus === "success" ||
+        status.counts.companions > 0 ||
+        status.counts.messages > 0 ||
+        status.counts.memories > 0 ||
+        status.counts.styleSummaries > 0;
+      const migration = hasExistingCoreData ? null : await importLocalStorageCoreSnapshot(buildCoreSnapshotFromState());
+      const snapshot = await getPythonCoreSnapshot();
+      applyCoreSnapshotFromBackend(snapshot);
+      setCoreStatus({
+        mode: "sqlite",
+        message: hasExistingCoreData
+          ? "核心数据已从本机 SQLite 读取；旧 localStorage 保留作回退。"
+          : "已把 legacy localStorage 快照复制到本机 SQLite；旧数据未清空。",
+        lastSnapshotHash: migration?.snapshotHash ?? status.latestMigrationHash,
+        counts: migration?.counts ?? status.counts,
+      });
+    } catch (error) {
+      setCoreStatus({
+        mode: "localStorage",
+        message: `${getKnowledgeBackendErrorMessage(error)} 已继续使用 localStorage。`,
+      });
+    } finally {
+      isSyncingCoreSnapshotRef.current = false;
+    }
+  }
+
+  async function refreshCoreStorageStatusOnly() {
+    if (coreStorageModeRef.current !== "sqlite") return;
+    try {
+      const status = await getPythonCoreStatus();
+      setCoreStatus({
+        mode: "sqlite",
+        message: status.message,
+        lastSnapshotHash: status.latestMigrationHash,
+        counts: status.counts,
+      });
+    } catch (error) {
+      setCoreStatus({
+        mode: "localStorage",
+        message: `${getKnowledgeBackendErrorMessage(error)} 已切回 localStorage。`,
+      });
+    }
+  }
+
+  async function persistCoreSnapshotToBackend() {
+    if (coreStorageModeRef.current !== "sqlite" || isHydratingCoreSnapshotRef.current || isSyncingCoreSnapshotRef.current) {
+      return;
+    }
+    isSyncingCoreSnapshotRef.current = true;
+    try {
+      const result = await savePythonCoreSnapshot(buildCoreSnapshotFromState());
+      setCoreStatus({
+        mode: "sqlite",
+        message: "核心数据已同步到本机 SQLite；localStorage 仍保留作回退。",
+        lastSnapshotHash: result.snapshotHash,
+        counts: result.counts,
+      });
+    } catch (error) {
+      setCoreStatus({
+        mode: "localStorage",
+        message: `${getKnowledgeBackendErrorMessage(error)} 已切回 localStorage。`,
+      });
+    } finally {
+      isSyncingCoreSnapshotRef.current = false;
+    }
+  }
+
+  function scheduleCoreSnapshotSave() {
+    if (coreStorageModeRef.current !== "sqlite" || isHydratingCoreSnapshotRef.current) return;
+    if (coreSnapshotSaveTimerRef.current) {
+      window.clearTimeout(coreSnapshotSaveTimerRef.current);
+    }
+    coreSnapshotSaveTimerRef.current = window.setTimeout(() => {
+      coreSnapshotSaveTimerRef.current = null;
+      void persistCoreSnapshotToBackend();
+    }, 600);
+  }
+
+  useEffect(() => {
+    appRepository.saveActiveCompanionId(activeCompanion.id);
+    scheduleCoreSnapshotSave();
+  }, [activeCompanion.id]);
+  useEffect(() => {
+    appRepository.saveCompanions(companions);
+    scheduleCoreSnapshotSave();
+  }, [companions]);
+  useEffect(() => {
+    appRepository.saveMessagesByCompanionId(messagesByCompanionId);
+    scheduleCoreSnapshotSave();
+  }, [messagesByCompanionId]);
+  useEffect(() => {
+    appRepository.saveMemories(memories);
+    scheduleCoreSnapshotSave();
+  }, [memories]);
+  useEffect(() => {
+    appRepository.saveStyleSummaries(styleSummaries);
+    scheduleCoreSnapshotSave();
+  }, [styleSummaries]);
   useEffect(() => {
     void refreshKnowledgeBackend();
   }, []);
+  useEffect(
+    () => () => {
+      if (coreSnapshotSaveTimerRef.current) {
+        window.clearTimeout(coreSnapshotSaveTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge) return;
@@ -489,18 +682,29 @@ export default function App() {
       dbReady: false,
       message: "正在检查本地 Python 后端...",
     });
+    await syncPythonBackendEndpointFromDesktop();
     const health = await getPythonBackendHealth();
     setKnowledgeBackendHealth(health);
     if (!health.available) {
       setKnowledgeSources([]);
+      setCoreStatus({
+        mode: "localStorage",
+        message: "本地 Python 后端未连接，核心数据继续使用 localStorage。",
+      });
       if (showActionMessage) {
-        setKnowledgeActionMessage(`${health.message} 请先启动：.\\.venv\\Scripts\\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8765`);
+        const port = new URL(getPythonBackendBaseURL()).port || "8765";
+        setKnowledgeActionMessage(`${health.message} 请先启动：.\\.venv\\Scripts\\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port ${port}`);
       }
       return;
     }
     await loadKnowledgeSourcesFromBackend();
+    if (coreStorageModeRef.current === "sqlite") {
+      await refreshCoreStorageStatusOnly();
+    } else {
+      await activateCoreStorageFromBackend();
+    }
     if (showActionMessage) {
-      setKnowledgeActionMessage(health.message);
+      setKnowledgeActionMessage(`${health.message} 当前后端：${getPythonBackendBaseURL()}`);
     }
   }
 
@@ -528,6 +732,7 @@ export default function App() {
   function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     appRepository.saveProviderConfig(providerConfig);
+    scheduleCoreSnapshotSave();
     setSettingsSaved(true);
     setError("");
   }
@@ -1620,6 +1825,7 @@ export default function App() {
               <div className="notice-list">
                 <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地；知识库资料由本机 Python 后端保存到 SQLite。</p>
                 <p>聊天时桌面版会优先经本机 Electron 代理请求模型服务商；Web 调试版没有桌面代理时仍可能由浏览器直连。项目不内置、不上传、不代管你的真实 Key。</p>
+                <p>本地 Python 后端可用时，会把伴侣、聊天、长期记忆、风格摘要和去 Key 的模型配置复制到本机 SQLite；旧 localStorage 不会自动清空，后端不可用时会回退。</p>
                 <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。</p>
                 <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
                 <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
@@ -2072,7 +2278,8 @@ export default function App() {
                 <ShieldCheck size={18} />
                 <p>
                   本项目不内置、不上传、不代管商业 API Key。桌面版优先经本机 Electron 代理转发到你配置的模型服务商；
-                  Web 调试版没有桌面代理时仍可能由浏览器直连。知识库资料默认只在本地保存，只有聊天命中的片段会随本次模型请求外发。
+                  Web 调试版没有桌面代理时仍可能由浏览器直连。Python 后端可用时，核心数据会复制到本机 SQLite，API Key 不迁入；
+                  知识库资料默认只在本地保存，只有聊天命中的片段会随本次模型请求外发。
                 </p>
               </div>
               <div className="warning-box">
@@ -2287,8 +2494,23 @@ export default function App() {
                 </div>
               </div>
               <p className="muted">
-                这些操作只影响当前环境的本地 localStorage。导出的 JSON 默认包含伴侣配置、长期记忆、风格摘要和去除 Key 的服务商配置，不包含原始聊天记录和知识库原文。
+                这些操作只影响当前环境的本地数据。Python 后端可用时，核心数据会同步到 SQLite；旧 localStorage 保留作回退。导出的 JSON 默认包含伴侣配置、长期记忆、风格摘要和去除 Key 的服务商配置，不包含原始聊天记录和知识库原文。
               </p>
+              <div className="backend-status compact">
+                <div>
+                  <strong>核心数据：{coreStorageStatus.mode === "sqlite" ? "SQLite" : "localStorage"}</strong>
+                  <span>{coreStorageStatus.message}</span>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => refreshKnowledgeBackend(true)}
+                  disabled={isKnowledgeLoading}
+                >
+                  <RefreshCw size={16} />
+                  刷新
+                </button>
+              </div>
               <div className="data-action-list">
                 <div className="data-action">
                   <div>
@@ -2565,6 +2787,7 @@ export default function App() {
                         {knowledgeBackendHealth.message}
                         {knowledgeBackendHealth.schemaVersion ? ` schema v${knowledgeBackendHealth.schemaVersion}` : ""}
                         {knowledgeBackendHealth.dbPath ? ` · ${knowledgeBackendHealth.dbPath}` : ""}
+                        {` · 核心数据：${coreStorageStatus.mode === "sqlite" ? "SQLite" : "localStorage"}`}
                       </span>
                     </div>
                     <button
@@ -2579,13 +2802,19 @@ export default function App() {
                   </div>
                   <div className="privacy-callout">
                     <ShieldCheck size={18} />
-                    <p>
-                      资料会保存到本机 Python 后端管理的 SQLite。聊天时只有检索命中的相关片段会随本次模型请求发给你配置的模型服务商；删除资料后不再注入。
-                    </p>
+                    <div>
+                      <p>
+                        资料会保存到本机 Python 后端管理的 SQLite。聊天时只有检索命中的相关片段会随本次模型请求发给你配置的模型服务商；删除资料后不再注入。
+                      </p>
+                      <p>{coreStorageStatus.message}</p>
+                    </div>
                   </div>
                   {!knowledgeBackendHealth.available && (
                     <div className="warning-box">
-                      <p>先在项目根目录启动：.\.venv\Scripts\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8765</p>
+                      <p>
+                        先在项目根目录启动：.\.venv\Scripts\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port{" "}
+                        {new URL(getPythonBackendBaseURL()).port || "8765"}
+                      </p>
                     </div>
                   )}
                   <form className="knowledge-form" onSubmit={handleImportKnowledge}>

@@ -41,6 +41,21 @@ export type DesktopModelProviderResponse =
       };
     };
 
+export type DesktopPythonBackendStatus =
+  | "idle"
+  | "starting"
+  | "available"
+  | "unavailable"
+  | "exited";
+
+export type DesktopPythonBackendPayload = {
+  status: DesktopPythonBackendStatus;
+  endpoint?: string;
+  port?: number;
+  managed: boolean;
+  message: string;
+};
+
 export type DesktopBridge = {
   getInfo: () => Promise<DesktopInfo>;
   modelProvider?: {
@@ -48,6 +63,10 @@ export type DesktopBridge = {
       config: ModelProviderConfig,
       messages: OpenAIChatMessage[],
     ) => Promise<DesktopModelProviderResponse>;
+  };
+  pythonBackend?: {
+    getStatus: () => Promise<DesktopPythonBackendPayload>;
+    getEndpoint: () => Promise<string | null>;
   };
   updates: {
     getStatus: () => Promise<DesktopUpdatePayload>;

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,7 @@ class DbStatusResponse(BaseModel):
     activeSourceCount: int
     chunkCount: int
     activeChunkCount: int
+    coreCounts: Optional["CoreCounts"] = None
 
 
 class CreateKnowledgeSourceRequest(BaseModel):
@@ -73,3 +74,48 @@ class DeleteKnowledgeSourceResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     existingSourceId: Optional[str] = None
+
+
+class CoreProviderConfigWithoutKey(BaseModel):
+    providerName: str = ""
+    baseURL: str = ""
+    model: str = ""
+    options: dict[str, Any] = Field(default_factory=dict)
+    apiKeyRemoved: bool = True
+
+
+class CoreSnapshot(BaseModel):
+    snapshotVersion: str = "core-snapshot-v1"
+    snapshotHash: Optional[str] = None
+    activeCompanionId: str = ""
+    providerConfigWithoutApiKey: CoreProviderConfigWithoutKey = Field(default_factory=CoreProviderConfigWithoutKey)
+    companions: list[dict[str, Any]] = Field(default_factory=list)
+    messagesByCompanionId: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    memories: list[dict[str, Any]] = Field(default_factory=list)
+    styleSummaries: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CoreCounts(BaseModel):
+    companions: int = 0
+    messages: int = 0
+    memories: int = 0
+    styleSummaries: int = 0
+    providerConfigs: int = 0
+    migrationRuns: int = 0
+
+
+class CoreMigrationResponse(BaseModel):
+    ok: bool
+    status: str
+    snapshotHash: str
+    counts: CoreCounts
+    message: str
+
+
+class CoreStatusResponse(BaseModel):
+    schemaVersion: int
+    coreReady: bool
+    latestMigrationHash: Optional[str] = None
+    latestMigrationStatus: Optional[str] = None
+    counts: CoreCounts
+    message: str

@@ -1,7 +1,39 @@
-import type { KnowledgeSourceStatus, KnowledgeSourceType } from "../types";
+import type {
+  ChatMessage,
+  CompanionProfile,
+  KnowledgeSourceStatus,
+  KnowledgeSourceType,
+  ModelProviderConfig,
+  StyleSummary,
+  UserMemory,
+} from "../types";
 
-const PYTHON_BACKEND_BASE_URL = "http://127.0.0.1:8765";
+const DEFAULT_PYTHON_BACKEND_BASE_URL = "http://127.0.0.1:8765";
 const DEFAULT_TIMEOUT_MS = 1800;
+let pythonBackendBaseURL = DEFAULT_PYTHON_BACKEND_BASE_URL;
+
+function normalizeBackendBaseURL(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const isLocalHost = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
+    if (parsed.protocol !== "http:" || !isLocalHost) return null;
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function setPythonBackendBaseURL(value?: string | null): void {
+  const normalized = value ? normalizeBackendBaseURL(value) : null;
+  pythonBackendBaseURL = normalized ?? DEFAULT_PYTHON_BACKEND_BASE_URL;
+}
+
+export function getPythonBackendBaseURL(): string {
+  return pythonBackendBaseURL;
+}
 
 export type PythonBackendHealth = {
   available: boolean;
@@ -9,6 +41,48 @@ export type PythonBackendHealth = {
   dbReady: boolean;
   schemaVersion?: number;
   dbPath?: string;
+  message: string;
+};
+
+export type CoreProviderConfigWithoutApiKey = Omit<ModelProviderConfig, "apiKey"> & {
+  apiKeyRemoved: true;
+  options?: Record<string, unknown>;
+};
+
+export type CoreSnapshot = {
+  snapshotVersion: "core-snapshot-v1";
+  snapshotHash?: string;
+  activeCompanionId: string;
+  providerConfigWithoutApiKey: CoreProviderConfigWithoutApiKey;
+  companions: CompanionProfile[];
+  messagesByCompanionId: Record<string, ChatMessage[]>;
+  memories: UserMemory[];
+  styleSummaries: StyleSummary[];
+};
+
+export type CoreCounts = {
+  companions: number;
+  messages: number;
+  memories: number;
+  styleSummaries: number;
+  providerConfigs: number;
+  migrationRuns: number;
+};
+
+export type CoreStatus = {
+  schemaVersion: number;
+  coreReady: boolean;
+  latestMigrationHash?: string;
+  latestMigrationStatus?: string;
+  counts: CoreCounts;
+  message: string;
+};
+
+export type CoreMigrationResult = {
+  ok: boolean;
+  status: string;
+  snapshotHash: string;
+  counts: CoreCounts;
   message: string;
 };
 
@@ -54,7 +128,7 @@ function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
     return "本地 Python 后端响应超时，请确认服务正在运行。";
   }
-  return "本地 Python 后端未运行，知识库暂不可用。";
+  return "本地 Python 后端未运行，本地知识库和 SQLite 暂不可用。";
 }
 
 function parseErrorPayload(value: unknown): { message: string; existingSourceId?: string } {
@@ -75,7 +149,7 @@ async function requestJSON<T>(path: string, init?: RequestInit, timeoutMs = DEFA
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${PYTHON_BACKEND_BASE_URL}${path}`, {
+    const response = await fetch(`${pythonBackendBaseURL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -107,6 +181,36 @@ async function requestJSON<T>(path: string, init?: RequestInit, timeoutMs = DEFA
   }
 }
 
+export async function getPythonCoreStatus(): Promise<CoreStatus> {
+  return requestJSON<CoreStatus>("/core/status", { method: "GET" });
+}
+
+export async function getPythonCoreSnapshot(): Promise<CoreSnapshot> {
+  return requestJSON<CoreSnapshot>("/core/snapshot", { method: "GET" });
+}
+
+export async function importLocalStorageCoreSnapshot(snapshot: CoreSnapshot): Promise<CoreMigrationResult> {
+  return requestJSON<CoreMigrationResult>(
+    "/core/migrations/local-storage-snapshot",
+    {
+      method: "POST",
+      body: JSON.stringify(snapshot),
+    },
+    8000,
+  );
+}
+
+export async function savePythonCoreSnapshot(snapshot: CoreSnapshot): Promise<CoreMigrationResult> {
+  return requestJSON<CoreMigrationResult>(
+    "/core/snapshot",
+    {
+      method: "PUT",
+      body: JSON.stringify(snapshot),
+    },
+    5000,
+  );
+}
+
 export async function getPythonBackendHealth(): Promise<PythonBackendHealth> {
   try {
     const health = await requestJSON<{
@@ -123,7 +227,7 @@ export async function getPythonBackendHealth(): Promise<PythonBackendHealth> {
       dbPath: health.dbPath,
       message:
         health.status === "ok" && health.dbReady
-          ? "本地 Python 后端已连接，知识库会保存到 SQLite。"
+          ? "本地 Python 后端已连接，知识库和 SQLite 数据可用。"
           : "本地 Python 后端已响应，但 SQLite 暂不可用。",
     };
   } catch (error) {

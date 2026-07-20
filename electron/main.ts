@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { registerModelProviderIpc } from "./modelProviderProxy";
+import { initializePythonSidecar, registerPythonSidecarIpc } from "./pythonSidecar";
 import { registerUpdaterIpc } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
@@ -128,6 +129,12 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle("desktop-window:is-maximized", () => mainWindow?.isMaximized() ?? false);
 
+    initializePythonSidecar({
+      projectRoot: path.join(__dirname, ".."),
+      userDataPath: app.getPath("userData"),
+      isPackaged: app.isPackaged,
+    });
+    registerPythonSidecarIpc();
     registerModelProviderIpc();
     registerUpdaterIpc(() => mainWindow);
     createMainWindow();

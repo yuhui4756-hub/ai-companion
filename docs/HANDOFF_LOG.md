@@ -1013,3 +1013,30 @@
 - 普通问题：`PROJECT_CONTEXT.md` 仍写“当前没有后端服务器、数据库持久化层、向量检索或 RAG 知识库能力”，与 2A 已交付状态不一致。
 - 总控处理：已更新 `PROJECT_CONTEXT.md` 当前实现状态，明确 2A 已有 Python/FastAPI sidecar、SQLite 知识库和 RAG 注入，同时保留核心数据尚未迁入 SQLite 的边界。
 - 可后续优化：后续 2B 继续推进核心数据 SQLite 迁移、legacy snapshot 事务导入、Electron 自动拉起 Python sidecar、健康重连和安装包集成；知识库检索可继续增强分词、命中解释或 embedding。
+
+### 2A 总控最终确认与提交
+
+- 总控复核：`./.venv/Scripts/python -m pytest backend/tests` 通过；`npx tsc --noEmit` 通过；`npm run build` 通过；`npm run desktop:build` 通过；严格密钥形态扫描无命中。
+- 后端健康检查：`/health` 返回 `status: ok`、`dbReady: true`、`schemaVersion: 1`；本机 8765 端口已有服务监听，因此未强行停止或替换运行中的服务。
+- 提交推送：已提交并推送到 `origin/main`，提交 `680d6d0 Add local Python knowledge backend`。
+- 桌面更新边界：本轮只提交源码，不发布新的 GitHub Release 或桌面安装包；当前线上安装包版本仍为 `0.1.1`，所以已安装桌面端不会提示更新。Python sidecar 尚未被 Electron 自动托管，直接发布桌面自动更新会让用户获得半成品体验，需在 2B 解决安装、启动和更新边界后再发布新版。
+
+### 2B 启动：核心数据迁移与桌面 sidecar
+
+- 总控决策：继续下一步，先由技术架构线程切分 2B 任务。
+- 目标方向：核心数据 SQLite 迁移、legacy `localStorage` snapshot 事务导入、Electron 托管 Python sidecar、健康重连、安装包/自动更新发布边界。
+- 任务包状态：已发送给技术架构线程 `019f7ebc-6bf6-70a1-9bea-9d533dfce78e`，要求其产出开发实现任务包并交给工程化开发实现线程。
+
+### 2B 核心数据迁移与 Electron sidecar 验收回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：工程化第二轮 2B 测试验收完成，范围为核心数据 SQLite 迁移与 Electron 托管 Python sidecar；不是工程化 P0 全量通过。
+- 完成内容：已验收 Python/FastAPI schema v2 的 `/health`、`/db/status`、`/core/status`、`/core/snapshot`、`PUT /core/snapshot`、`POST /core/migrations/local-storage-snapshot`；已用独立临时 SQLite 验证 companions/messages/memories/style_summaries/provider config 写入读回、重复迁移不重复插入、缺失 message id 派生稳定 id、重启后可读回 snapshot。
+- 隐私边界：renderer 构造 core snapshot 时去掉 `apiKey`；后端即使收到带假密钥形态的字段也会脱敏；SQLite provider_configs 只保留 `api_key_ref=renderer-localStorage`，未发现真实密钥入库、入日志或入扫描结果。
+- UI 与回归：Web UI 首次默认女友仍只显示 1 个“予安”；知识 UI 导入、持久化、重复提示、RAG 注入、软删除后不注入、后端停止 fallback 均通过；记忆面板不混入知识 marker。
+- Electron sidecar：开发态 8765 空闲时托管后端并返回 schema v2；8765 被占用时落到 8766；关闭 Electron 窗口后对应 sidecar 端口释放；最终 8765-8780 无监听，Electron/uvicorn 无残留。
+- 验证结果：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 FastAPI/Starlette TestClient 的 httpx 弃用 warning）；`npx tsc --noEmit`、`npm run build`、`npm run desktop:build` 通过；严格密钥形态扫描无命中；宽敏感词扫描人工复核未见真实 API Key/token/Cookie/扫码凭证。
+- 阻塞问题：无。
+- 普通问题：阶段文档仍停在 2A/等待 2B，需同步 `PROJECT_CONTEXT.md` 与 `docs/PROJECT_ORCHESTRATION.md`。
+- 总控处理：已同步项目上下文和编排状态，明确 2B 已完成 core snapshot/SQLite 迁移与 Electron dev sidecar，同时标注公开安装包仍未内置 Python 可执行文件和 backend resources，发布/自动更新留到 2C。
+- 可后续优化：2C 单独设计 PyInstaller/资源打包/升级/回滚；补 core migration、Electron sidecar 端口回退、preload 白名单、RAG 注入/删除自动化测试；后续可增加核心数据细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。

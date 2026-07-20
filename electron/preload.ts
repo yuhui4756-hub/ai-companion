@@ -21,11 +21,23 @@ type OpenAIChatMessage = {
   content: string;
 };
 
+type PythonBackendStatusPayload = {
+  status: "idle" | "starting" | "available" | "unavailable" | "exited";
+  endpoint?: string;
+  port?: number;
+  managed: boolean;
+  message: string;
+};
+
 contextBridge.exposeInMainWorld("aiCompanionDesktop", {
   getInfo: () => ipcRenderer.invoke("desktop:get-info"),
   modelProvider: {
     requestChatCompletion: (config: ModelProviderConfig, messages: OpenAIChatMessage[]) =>
       ipcRenderer.invoke("model-provider:request-chat-completion", { config, messages }),
+  },
+  pythonBackend: {
+    getStatus: (): Promise<PythonBackendStatusPayload> => ipcRenderer.invoke("python-backend:get-status"),
+    getEndpoint: (): Promise<string | null> => ipcRenderer.invoke("python-backend:get-endpoint"),
   },
   updates: {
     getStatus: () => ipcRenderer.invoke("updates:get-status"),
