@@ -4,6 +4,8 @@ import type {
   ChatMessage,
   CompanionOnboardingState,
   CompanionProfile,
+  KnowledgeChunk,
+  KnowledgeSource,
   LegacyCompanionType,
   LocalDataExport,
   MemoryCategory,
@@ -28,6 +30,8 @@ const STORAGE_KEYS = {
   privacyNoticeAck: "ai-companion:privacy-notice-ack:v1",
   companionOnboarding: "ai-companion:companion-onboarding:v1",
   oneBotLocalConfig: "ai-companion:onebot-local-config:v1",
+  knowledgeSources: "ai-companion:knowledge-sources:v1",
+  knowledgeChunks: "ai-companion:knowledge-chunks:v1",
 } as const;
 
 export const defaultProviderConfig: ModelProviderConfig = {
@@ -223,6 +227,26 @@ export function saveStyleSummaries(summaries: StyleSummary[]): void {
   writeJSON(STORAGE_KEYS.styleSummaries, summaries);
 }
 
+export function loadKnowledgeSources(): KnowledgeSource[] {
+  return readJSON<KnowledgeSource[]>(STORAGE_KEYS.knowledgeSources, []).filter(
+    (source) => source.status === "active" || source.status === "deleted",
+  );
+}
+
+export function saveKnowledgeSources(sources: KnowledgeSource[]): void {
+  writeJSON(STORAGE_KEYS.knowledgeSources, sources);
+}
+
+export function loadKnowledgeChunks(): KnowledgeChunk[] {
+  return readJSON<KnowledgeChunk[]>(STORAGE_KEYS.knowledgeChunks, []).filter(
+    (chunk) => chunk.status === "active" || chunk.status === "deleted",
+  );
+}
+
+export function saveKnowledgeChunks(chunks: KnowledgeChunk[]): void {
+  writeJSON(STORAGE_KEYS.knowledgeChunks, chunks);
+}
+
 export function loadPrivacyNoticeAck(): PrivacyNoticeAck {
   return readJSON<PrivacyNoticeAck>(STORAGE_KEYS.privacyNoticeAck, { acknowledged: false });
 }
@@ -301,6 +325,22 @@ export const localSyncPolicies: SyncPolicy[] = [
     requiresExplicitConsent: true,
     mustEncryptAtRest: true,
     notes: "伴侣配置可手动导出，未来同步必须由用户主动开启。",
+  },
+  {
+    category: "knowledgeSources",
+    defaultCapability: "local_only",
+    canSync: false,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "知识库来源默认只在本地保存；后续同步或迁移必须由用户明确授权。",
+  },
+  {
+    category: "knowledgeChunks",
+    defaultCapability: "local_only",
+    canSync: false,
+    requiresExplicitConsent: true,
+    mustEncryptAtRest: true,
+    notes: "知识库切片只用于本地检索；命中片段只会随当前模型请求发给用户配置的服务商。",
   },
   {
     category: "privacyNotice",

@@ -133,6 +133,7 @@ export function buildSystemPrompt(
   memories: UserMemory[],
   latestUserInput: string,
   history: ChatMessage[] = [],
+  knowledgeContext = "",
 ): string {
   const riskInstruction = hasHighRiskContent(latestUserInput)
     ? "用户当前可能有自伤、暴力或极端失控风险：先稳住情绪，表达关心，引导联系现实中可信的人或当地紧急服务，不要给出危险方法。"
@@ -149,6 +150,7 @@ export function buildSystemPrompt(
     formatStyleSummary(styleSummary),
     "你记得这些相处信息：",
     formatMemories(memories),
+    knowledgeContext,
     buildSafetyFloor(),
     riskInstruction,
     dependencyInstruction,
@@ -163,6 +165,7 @@ export function buildChatMessages(
   memories: UserMemory[],
   history: ChatMessage[],
   latestUserInput: string,
+  knowledgeContext = "",
 ): OpenAIChatMessage[] {
   const recentHistory = history.slice(-12).map((message) => ({
     role: message.role,
@@ -172,7 +175,7 @@ export function buildChatMessages(
   return [
     {
       role: "system",
-      content: buildSystemPrompt(companion, styleSummary, memories, latestUserInput, history),
+      content: buildSystemPrompt(companion, styleSummary, memories, latestUserInput, history, knowledgeContext),
     },
     ...recentHistory,
     {

@@ -71,3 +71,41 @@ type ModelProviderConfig = {
 - WeChatAdapter：微信消息转为统一 ChatMessage。
 
 核心 chat-engine 不关心消息来自哪里。
+
+## 工程化升级阶段蓝图
+
+当前项目已经完成本地网页和 Electron 桌面版基础能力。下一阶段重点不是推翻现有前端，而是在保持本地优先的前提下增加工程层。为兼顾实际价值和简历表达，第二轮优先评估 Python/FastAPI 本地服务，让项目形成“React/Electron 客户端 + Python 本地后端”的清晰架构。
+
+1. 本地后端代理
+   - 第一轮已先落地 Electron 主进程代理，解决桌面端密钥边界和错误脱敏。
+   - 第二轮优先评估 Python/FastAPI 本地服务，统一承接模型请求、数据访问和 RAG 检索；Electron 可负责启动/连接本地服务，Web 调试版保留兼容路径。
+   - 前端只调用本地代理接口或桌面桥，代理负责拼接供应商 `baseURL`、鉴权、错误归一化和后续流式响应。
+   - 第一版代理仍使用用户自己的 API Key，不代管商业 Key，不上传到远端。
+   - 代理要保留清晰错误码：缺少配置、认证失败、余额/频率不足、网络失败、模型不可用、响应异常。
+
+2. SQLite 本地持久化
+   - 优先评估由 Python 服务管理 SQLite，作为桌面版稳定存储；Web 调试版可以继续保留 `localStorage` 兼容层。
+   - 建议把数据访问收敛到 repository/service 层，避免 UI 直接依赖具体存储实现。
+   - 迁移顺序：先读旧 `localStorage`，导入到新库，校验后保留可回退导出能力。
+   - 最小表：companions、messages、memories、style_summaries、provider_configs、knowledge_sources、knowledge_chunks。
+
+3. 本地知识库/RAG
+   - 第一版只支持用户手动导入文本或 Markdown，不做联网爬取。
+   - 导入文本在 Python 本地服务中切分为 chunks，保存来源、标题、时间和摘要。
+   - 检索可以先用 Python 实现简单关键词/模糊匹配，架构上预留 embedding 向量字段。
+   - prompt 注入时必须标记为“用户导入资料”，不能把知识库片段当成长期记忆或模型事实。
+
+## 建议实施顺序
+
+1. 保留第一轮 Electron 主进程代理和 repository/RAG 骨架，确认不倒退已通过的安全边界。
+2. 新增最小 Python/FastAPI 本地服务骨架，优先暴露健康检查、模型代理或数据访问中的一个可运行接口。
+3. 引入 SQLite 并完成伴侣、消息、记忆、风格摘要的最小读写或迁移验证。
+4. 做最小知识库导入、切分、检索和 prompt 注入，优先复用 Python 服务承接 RAG 逻辑。
+5. 补齐迁移、错误处理、无密钥泄漏、启动说明和回归测试。
+
+## 风险边界
+
+- 不在文档、日志、线程消息或仓库中记录真实 API Key。
+- 不自动同步用户聊天记录、长期记忆或知识库内容。
+- 如果引入第三方 embedding 或云端向量服务，必须先交回总控确认隐私和费用风险。
+- 如果涉及 QQ/微信、模型价格或供应商限制，必须实时查证官方资料。

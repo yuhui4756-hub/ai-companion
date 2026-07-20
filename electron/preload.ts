@@ -9,8 +9,24 @@ type UpdateStatusPayload = {
   message?: string;
 };
 
+type ModelProviderConfig = {
+  providerName: string;
+  baseURL: string;
+  apiKey: string;
+  model: string;
+};
+
+type OpenAIChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
 contextBridge.exposeInMainWorld("aiCompanionDesktop", {
   getInfo: () => ipcRenderer.invoke("desktop:get-info"),
+  modelProvider: {
+    requestChatCompletion: (config: ModelProviderConfig, messages: OpenAIChatMessage[]) =>
+      ipcRenderer.invoke("model-provider:request-chat-completion", { config, messages }),
+  },
   updates: {
     getStatus: () => ipcRenderer.invoke("updates:get-status"),
     check: (options?: { simulateAvailable?: boolean; silent?: boolean }) => ipcRenderer.invoke("updates:check", options),

@@ -65,7 +65,7 @@ export function validateProviderConfig(config: ModelProviderConfig): void {
   }
 }
 
-export async function requestChatCompletion(
+export async function requestDirectChatCompletion(
   config: ModelProviderConfig,
   messages: OpenAIChatMessage[],
 ): Promise<string> {
@@ -123,3 +123,5 @@ export async function requestChatCompletion(
 
   return content;
 }
+
+export const requestChatCompletion = requestDirectChatCompletion;

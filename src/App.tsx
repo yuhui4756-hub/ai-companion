@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FileText,
   KeyRound,
   Maximize2,
   MessageCircle,
@@ -56,28 +57,21 @@ import {
   memoryCategoryLabels,
   memoryScopeLabels,
 } from "./memory/memory";
+import {
+  deletePythonKnowledgeSource,
+  getPythonBackendHealth,
+  importPythonKnowledgeSource,
+  listPythonKnowledgeSources,
+  PythonBackendError,
+  searchPythonKnowledge,
+  type PythonBackendHealth,
+  type PythonKnowledgeSource,
+} from "./backend/pythonBackendClient";
 import { ModelProviderError } from "./model-provider/openai";
+import { appRepository } from "./storage/appRepository";
 import {
   defaultProviderConfig,
-  loadActiveCompanionId,
-  loadCompanions,
-  loadMemories,
-  loadMessagesByCompanionId,
-  loadOneBotLocalConfig,
-  loadCompanionOnboardingState,
-  loadPrivacyNoticeAck,
-  loadProviderConfig,
-  loadStyleSummaries,
-  saveActiveCompanionId,
   buildLocalDataExport,
-  saveCompanions,
-  saveMemories,
-  saveMessagesByCompanionId,
-  saveOneBotLocalConfig,
-  saveCompanionOnboardingState,
-  savePrivacyNoticeAck,
-  saveProviderConfig,
-  saveStyleSummaries,
 } from "./storage/localStorage";
 import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
 import { getDesktopBridge, type DesktopInfo, type DesktopUpdatePayload } from "./desktop/desktopBridge";
@@ -96,6 +90,7 @@ import type {
   AppView,
   ChatMessage,
   CompanionProfile,
+  KnowledgeSourceType,
   LocalDataExport,
   MemoryCandidate,
   MemoryCategory,
@@ -115,6 +110,10 @@ const memoryCategories = Object.entries(memoryCategoryLabels) as Array<[MemoryCa
 const importanceOptions: MemoryImportance[] = [1, 2, 3];
 const relationshipOptions = Object.entries(relationshipLabels) as Array<[RelationshipType, string]>;
 const memoryVisibleActions = new Set(["create", "merge", "replace"]);
+const knowledgeSourceTypeLabels: Record<KnowledgeSourceType, string> = {
+  manual_text: "文本",
+  markdown: "Markdown",
+};
 const romanceGenderOptions: Array<{ value: RomanceGender; label: string; description: string }> = [
   {
     value: "female",
@@ -127,13 +126,14 @@ const romanceGenderOptions: Array<{ value: RomanceGender; label: string; descrip
     description: "更偏稳定、保护感、直球、宠溺和陪你一起扛事，也可以阳光或清冷。",
   },
 ];
-const initialPrivacyNoticeAck = loadPrivacyNoticeAck();
-const initialOnboardingState = loadCompanionOnboardingState();
-const initialActiveCompanionId = loadActiveCompanionId();
-const initialMessagesByCompanionId = loadMessagesByCompanionId(initialActiveCompanionId);
+const initialPrivacyNoticeAck = appRepository.loadPrivacyNoticeAck();
+const initialOnboardingState = appRepository.loadCompanionOnboardingState();
+const initialActiveCompanionId = appRepository.loadActiveCompanionId();
+const initialMessagesByCompanionId = appRepository.loadMessagesByCompanionId(initialActiveCompanionId);
 const shouldAutoOpenOnboarding =
   initialOnboardingState.status === "new" && Object.values(initialMessagesByCompanionId).every((messages) => messages.length === 0);
 const APP_DISPLAY_NAME = "所依";
+const DEFAULT_ROMANCE_COMPANION_ID = "companion-romance";
 const providerPresets = [
   {
     id: "deepseek-flash",
@@ -180,8 +180,25 @@ function getFriendlyError(error: unknown): string {
   return "发生了未预期错误，请稍后重试。";
 }
 
+function getKnowledgeBackendErrorMessage(error: unknown): string {
+  if (error instanceof PythonBackendError) return error.message;
+  if (error instanceof Error) return `本地 Python 后端请求失败：${error.message}`;
+  return "本地 Python 后端请求失败。";
+}
+
 function companionDisplayName(companion: CompanionProfile): string {
   return companion.name.trim() || "未命名伴侣";
+}
+
+function formatLocalDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function getCompanionAvatarText(companion: CompanionProfile): string {
@@ -256,15 +273,30 @@ function wait(ms: number): Promise<void> {
 
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>("chat");
-  const [companions, setCompanions] = useState<CompanionProfile[]>(() => loadCompanions());
+  const [companions, setCompanions] = useState<CompanionProfile[]>(() => appRepository.loadCompanions());
   const [activeCompanionId, setActiveCompanionId] = useState<string>(() => initialActiveCompanionId);
-  const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => loadProviderConfig());
-  const [oneBotConfig, setOneBotConfig] = useState<OneBotLocalConfig>(() => loadOneBotLocalConfig());
+  const [providerConfig, setProviderConfig] = useState<ModelProviderConfig>(() => appRepository.loadProviderConfig());
+  const [oneBotConfig, setOneBotConfig] = useState<OneBotLocalConfig>(() => appRepository.loadOneBotLocalConfig());
   const [messagesByCompanionId, setMessagesByCompanionId] = useState<Record<string, ChatMessage[]>>(
     () => initialMessagesByCompanionId,
   );
-  const [memories, setMemories] = useState<UserMemory[]>(() => loadMemories());
-  const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => loadStyleSummaries());
+  const [memories, setMemories] = useState<UserMemory[]>(() => appRepository.loadMemories());
+  const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => appRepository.loadStyleSummaries());
+  const [knowledgeSources, setKnowledgeSources] = useState<PythonKnowledgeSource[]>([]);
+  const [knowledgeBackendHealth, setKnowledgeBackendHealth] = useState<PythonBackendHealth>({
+    available: false,
+    status: "checking",
+    dbReady: false,
+    message: "正在检查本地 Python 后端...",
+  });
+  const [knowledgeDraft, setKnowledgeDraft] = useState({
+    title: "",
+    sourceType: "manual_text" as KnowledgeSourceType,
+    content: "",
+  });
+  const [knowledgeActionMessage, setKnowledgeActionMessage] = useState("");
+  const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
+  const [isKnowledgeImporting, setIsKnowledgeImporting] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -325,6 +357,8 @@ export default function App() {
     if (memory.scope === "companion" && memory.companionId !== activeCompanion.id) return false;
     return memory.status !== "deleted";
   });
+  const visibleKnowledgeSources = [...knowledgeSources].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const activeKnowledgeSourceCount = knowledgeSources.filter((source) => source.status === "active").length;
   const mainCompanions = companions.filter((companion) => isRomanceCompanion(companion) || companion.showInMainList);
   const hiddenCompanions = companions.filter((companion) => !mainCompanions.some((profile) => profile.id === companion.id));
   const hasUserCreatedCompanion = useMemo(
@@ -370,11 +404,14 @@ export default function App() {
   const editorPromptIssues =
     editorPromptValidation.issues.length > 0 ? editorPromptValidation.issues : editorCompanion.promptValidationIssues ?? [];
 
-  useEffect(() => saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
-  useEffect(() => saveCompanions(companions), [companions]);
-  useEffect(() => saveMessagesByCompanionId(messagesByCompanionId), [messagesByCompanionId]);
-  useEffect(() => saveMemories(memories), [memories]);
-  useEffect(() => saveStyleSummaries(styleSummaries), [styleSummaries]);
+  useEffect(() => appRepository.saveActiveCompanionId(activeCompanion.id), [activeCompanion.id]);
+  useEffect(() => appRepository.saveCompanions(companions), [companions]);
+  useEffect(() => appRepository.saveMessagesByCompanionId(messagesByCompanionId), [messagesByCompanionId]);
+  useEffect(() => appRepository.saveMemories(memories), [memories]);
+  useEffect(() => appRepository.saveStyleSummaries(styleSummaries), [styleSummaries]);
+  useEffect(() => {
+    void refreshKnowledgeBackend();
+  }, []);
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge) return;
@@ -427,6 +464,46 @@ export default function App() {
     });
   }, [activeCompanion, messages, shouldShowOnboarding, isSending, isAssistantTyping, isRomanceReconnectSuppressed]);
 
+  async function loadKnowledgeSourcesFromBackend() {
+    setIsKnowledgeLoading(true);
+    try {
+      const sources = await listPythonKnowledgeSources();
+      setKnowledgeSources(sources);
+    } catch (error) {
+      setKnowledgeSources([]);
+      setKnowledgeBackendHealth({
+        available: false,
+        status: "unavailable",
+        dbReady: false,
+        message: getKnowledgeBackendErrorMessage(error),
+      });
+    } finally {
+      setIsKnowledgeLoading(false);
+    }
+  }
+
+  async function refreshKnowledgeBackend(showActionMessage = false) {
+    setKnowledgeBackendHealth({
+      available: false,
+      status: "checking",
+      dbReady: false,
+      message: "正在检查本地 Python 后端...",
+    });
+    const health = await getPythonBackendHealth();
+    setKnowledgeBackendHealth(health);
+    if (!health.available) {
+      setKnowledgeSources([]);
+      if (showActionMessage) {
+        setKnowledgeActionMessage(`${health.message} 请先启动：.\\.venv\\Scripts\\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8765`);
+      }
+      return;
+    }
+    await loadKnowledgeSourcesFromBackend();
+    if (showActionMessage) {
+      setKnowledgeActionMessage(health.message);
+    }
+  }
+
   function updateProviderConfig(field: keyof ModelProviderConfig, value: string) {
     setSettingsSaved(false);
     setDataActionMessage("");
@@ -450,7 +527,7 @@ export default function App() {
 
   function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    saveProviderConfig(providerConfig);
+    appRepository.saveProviderConfig(providerConfig);
     setSettingsSaved(true);
     setError("");
   }
@@ -464,7 +541,7 @@ export default function App() {
   }
 
   function saveOneBotExperimentConfig() {
-    saveOneBotLocalConfig(oneBotConfig);
+    appRepository.saveOneBotLocalConfig(oneBotConfig);
     const status = oneBotConfig.enabled ? getOneBotStatusMessage("not-configured") : getOneBotStatusMessage("disconnected");
     setOneBotActionMessage(
       oneBotConfig.enabled
@@ -583,13 +660,11 @@ export default function App() {
   }
 
   function skipOnboarding() {
-    const companion = createRomanceCompanionFromDraft({ gender: "female" });
-    setCompanions((current) => [companion, ...current]);
-    setActiveCompanionId(companion.id);
+    setActiveCompanionId(DEFAULT_ROMANCE_COMPANION_ID);
     setIsRomanceReconnectSuppressed(true);
     const state = nextOnboardingState("skipped");
     setOnboardingState(state);
-    saveCompanionOnboardingState(state);
+    appRepository.saveCompanionOnboardingState(state);
     setIsOnboardingOpen(false);
     setIsOnboardingManuallyOpened(false);
     setOnboardingStep(0);
@@ -614,7 +689,7 @@ export default function App() {
     setIsRomanceReconnectSuppressed(true);
     const state = nextOnboardingState("completed");
     setOnboardingState(state);
-    saveCompanionOnboardingState(state);
+    appRepository.saveCompanionOnboardingState(state);
     setIsOnboardingOpen(false);
     setIsOnboardingManuallyOpened(false);
     setOnboardingStep(0);
@@ -712,12 +787,33 @@ export default function App() {
     setIsSending(true);
     setIsAssistantTyping(true);
 
+    let knowledgeContext = "";
+    if (knowledgeBackendHealth.available) {
+      try {
+        const searchResult = await searchPythonKnowledge({
+          query: userInput,
+          topK: 3,
+          promptBudget: 1200,
+        });
+        knowledgeContext = searchResult.promptContext;
+      } catch (searchError) {
+        setKnowledgeBackendHealth({
+          available: false,
+          status: "unavailable",
+          dbReady: false,
+          message: getKnowledgeBackendErrorMessage(searchError),
+        });
+        setKnowledgeActionMessage("本地 Python 后端暂不可用，已跳过本次知识库检索。");
+      }
+    }
+
     try {
       const reply = await sendCompanionMessage({
         config: providerConfig,
         companion: sendingCompanion,
         styleSummary: activeStyleSummary,
         memories: nextMemories,
+        knowledgeContext,
         history: sendingMessages,
         userInput,
       });
@@ -792,6 +888,49 @@ export default function App() {
     );
   }
 
+  async function handleImportKnowledge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = knowledgeDraft.content.trim();
+    if (!content) return;
+    if (!knowledgeBackendHealth.available) {
+      setKnowledgeActionMessage("本地 Python 后端未运行，不能导入知识库。请先按 backend/README.md 启动服务。");
+      return;
+    }
+
+    setIsKnowledgeImporting(true);
+    try {
+      const source = await importPythonKnowledgeSource({
+        title: knowledgeDraft.title,
+        sourceType: knowledgeDraft.sourceType,
+        content,
+      });
+      setKnowledgeDraft({
+        title: "",
+        sourceType: "manual_text",
+        content: "",
+      });
+      setKnowledgeActionMessage(`已写入 SQLite：《${source.title}》，生成 ${source.chunkCount} 个本地切片。`);
+      await loadKnowledgeSourcesFromBackend();
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    } finally {
+      setIsKnowledgeImporting(false);
+    }
+  }
+
+  async function deleteKnowledgeSource(sourceId: string) {
+    const source = knowledgeSources.find((item) => item.id === sourceId);
+    try {
+      await deletePythonKnowledgeSource(sourceId);
+      setKnowledgeActionMessage(
+        source ? `已软删除《${source.title}》。它的片段不会再进入后续聊天。` : "已软删除资料，它的片段不会再进入后续聊天。",
+      );
+      await loadKnowledgeSourcesFromBackend();
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    }
+  }
+
   function clearChat() {
     responseSequenceRef.current += 1;
     setCompanionMessages(activeCompanion.id, []);
@@ -805,7 +944,7 @@ export default function App() {
     if (!window.confirm("清除后需要重新填写 API Key 才能聊天。确定清除本地 API Key 吗？")) return;
     const nextConfig = { ...providerConfig, apiKey: "" };
     setProviderConfig(nextConfig);
-    saveProviderConfig(nextConfig);
+    appRepository.saveProviderConfig(nextConfig);
     setSettingsSaved(false);
     setError("");
     setDataActionMessage("已清除本地 API Key。服务商名称、baseURL 和 model 已保留。");
@@ -826,7 +965,7 @@ export default function App() {
   function clearLongTermMemories() {
     if (!window.confirm("确定清除全部长期记忆吗？清除后它们不会再影响后续回复。")) return;
     setMemories([]);
-    saveMemories([]);
+    appRepository.saveMemories([]);
     setLatestCandidates([]);
     setDataActionMessage("已清除全部长期记忆。聊天记录中的原始消息不会因此删除。");
   }
@@ -839,8 +978,8 @@ export default function App() {
     );
     setStyleSummaries([]);
     setCompanions(nextCompanions);
-    saveStyleSummaries([]);
-    saveCompanions(nextCompanions);
+    appRepository.saveStyleSummaries([]);
+    appRepository.saveCompanions(nextCompanions);
     setDataActionMessage("已清除全部风格摘要，并解除伴侣绑定。");
   }
 
@@ -860,7 +999,7 @@ export default function App() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    setDataActionMessage("已导出本地配置和记忆 JSON。导出文件不包含 API Key，也不包含原始聊天记录。");
+    setDataActionMessage("已导出本地配置和记忆 JSON。导出文件不包含 API Key、原始聊天记录，也不包含知识库原文。");
   }
 
   function isLocalDataExport(value: unknown): value is LocalDataExport {
@@ -896,10 +1035,10 @@ export default function App() {
       setCompanions(parsed.companions);
       setMemories(parsed.memories);
       setStyleSummaries(parsed.styleSummaries);
-      saveProviderConfig(nextProviderConfig);
-      saveCompanions(parsed.companions);
-      saveMemories(parsed.memories);
-      saveStyleSummaries(parsed.styleSummaries);
+      appRepository.saveProviderConfig(nextProviderConfig);
+      appRepository.saveCompanions(parsed.companions);
+      appRepository.saveMemories(parsed.memories);
+      appRepository.saveStyleSummaries(parsed.styleSummaries);
       if (parsed.companions[0]) {
         setActiveCompanionId(parsed.companions[0].id);
       }
@@ -990,7 +1129,7 @@ export default function App() {
   function acknowledgePrivacyNotice() {
     const nextAck = { acknowledged: true, acknowledgedAt: new Date().toISOString() };
     setPrivacyNoticeAck(nextAck);
-    savePrivacyNoticeAck(nextAck);
+    appRepository.savePrivacyNoticeAck(nextAck);
     setIsPrivacyNoticeOpen(false);
   }
 
@@ -1411,6 +1550,10 @@ export default function App() {
               <BookOpen size={17} />
               记忆
             </button>
+            <button className="ghost-button" type="button" onClick={() => setActiveView("knowledge")}>
+              <FileText size={17} />
+              知识
+            </button>
             <button className="ghost-button" type="button" onClick={() => setActiveView("style")}>
               <Sparkles size={17} />
               风格
@@ -1475,8 +1618,9 @@ export default function App() {
                 )}
               </div>
               <div className="notice-list">
-                <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地。</p>
-                <p>聊天时浏览器会用你填写的接口请求模型服务商；项目不内置、不上传、不代管你的真实 Key。</p>
+                <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地；知识库资料由本机 Python 后端保存到 SQLite。</p>
+                <p>聊天时桌面版会优先经本机 Electron 代理请求模型服务商；Web 调试版没有桌面代理时仍可能由浏览器直连。项目不内置、不上传、不代管你的真实 Key。</p>
+                <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。</p>
                 <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
                 <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
               </div>
@@ -1921,14 +2065,14 @@ export default function App() {
                   autoComplete="off"
                   value={providerConfig.apiKey}
                   onChange={(event) => updateProviderConfig("apiKey", event.target.value)}
-                  placeholder="只保存在本机浏览器 localStorage"
+                  placeholder="只保存在当前环境本地 localStorage"
                 />
               </label>
               <div className="privacy-callout">
                 <ShieldCheck size={18} />
                 <p>
-                  本项目不内置、不上传、不代管商业 API Key。浏览器直连你填写的 OpenAI 兼容接口；
-                  导入聊天记录 P0 仅做本地摘要表单，不会默认发送给第三方模型。
+                  本项目不内置、不上传、不代管商业 API Key。桌面版优先经本机 Electron 代理转发到你配置的模型服务商；
+                  Web 调试版没有桌面代理时仍可能由浏览器直连。知识库资料默认只在本地保存，只有聊天命中的片段会随本次模型请求外发。
                 </p>
               </div>
               <div className="warning-box">
@@ -2143,7 +2287,7 @@ export default function App() {
                 </div>
               </div>
               <p className="muted">
-                这些操作只影响当前浏览器 localStorage。导出的 JSON 默认包含伴侣配置、长期记忆、风格摘要和去除 Key 的服务商配置，不包含原始聊天记录。
+                这些操作只影响当前环境的本地 localStorage。导出的 JSON 默认包含伴侣配置、长期记忆、风格摘要和去除 Key 的服务商配置，不包含原始聊天记录和知识库原文。
               </p>
               <div className="data-action-list">
                 <div className="data-action">
@@ -2392,6 +2536,166 @@ export default function App() {
               )}
             </section>
           </div>
+            </div>
+          </div>
+        )}
+
+        {activeView === "knowledge" && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="知识">
+            <div className="modal-panel modal-panel-wide">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Knowledge</p>
+                  <h2>知识</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setActiveView("chat")}>
+                  关闭
+                </button>
+              </div>
+              <div className="content-grid knowledge-layout">
+                <section className="workspace-panel">
+                  <div className="section-title">
+                    <Plus size={18} />
+                    <h3>导入资料</h3>
+                  </div>
+                  <div className={knowledgeBackendHealth.available ? "backend-status connected" : "backend-status"}>
+                    <div>
+                      <strong>{knowledgeBackendHealth.available ? "Python 后端已连接" : "Python 后端未连接"}</strong>
+                      <span>
+                        {knowledgeBackendHealth.message}
+                        {knowledgeBackendHealth.schemaVersion ? ` schema v${knowledgeBackendHealth.schemaVersion}` : ""}
+                        {knowledgeBackendHealth.dbPath ? ` · ${knowledgeBackendHealth.dbPath}` : ""}
+                      </span>
+                    </div>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => refreshKnowledgeBackend(true)}
+                      disabled={isKnowledgeLoading}
+                    >
+                      <RefreshCw size={16} />
+                      {isKnowledgeLoading ? "检查中" : "刷新"}
+                    </button>
+                  </div>
+                  <div className="privacy-callout">
+                    <ShieldCheck size={18} />
+                    <p>
+                      资料会保存到本机 Python 后端管理的 SQLite。聊天时只有检索命中的相关片段会随本次模型请求发给你配置的模型服务商；删除资料后不再注入。
+                    </p>
+                  </div>
+                  {!knowledgeBackendHealth.available && (
+                    <div className="warning-box">
+                      <p>先在项目根目录启动：.\.venv\Scripts\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8765</p>
+                    </div>
+                  )}
+                  <form className="knowledge-form" onSubmit={handleImportKnowledge}>
+                    <label>
+                      标题
+                      <input
+                        value={knowledgeDraft.title}
+                        onChange={(event) =>
+                          setKnowledgeDraft((current) => ({ ...current, title: event.target.value }))
+                        }
+                        placeholder="例如：我的项目说明、课程笔记、旅行计划"
+                      />
+                    </label>
+                    <label>
+                      类型
+                      <select
+                        value={knowledgeDraft.sourceType}
+                        onChange={(event) =>
+                          setKnowledgeDraft((current) => ({
+                            ...current,
+                            sourceType: event.target.value as KnowledgeSourceType,
+                          }))
+                        }
+                      >
+                        <option value="manual_text">文本</option>
+                        <option value="markdown">Markdown</option>
+                      </select>
+                    </label>
+                    <label>
+                      内容
+                      <textarea
+                        value={knowledgeDraft.content}
+                        onChange={(event) =>
+                          setKnowledgeDraft((current) => ({ ...current, content: event.target.value }))
+                        }
+                        placeholder="粘贴你明确允许所依参考的文本或 Markdown。建议一次放一个主题，便于后续删除和检索。"
+                        rows={9}
+                      />
+                    </label>
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={!knowledgeBackendHealth.available || isKnowledgeImporting || !knowledgeDraft.content.trim()}
+                    >
+                      <Upload size={17} />
+                      {isKnowledgeImporting ? "导入中" : "导入到 SQLite"}
+                    </button>
+                  </form>
+                  {knowledgeActionMessage && <p className="inline-status">{knowledgeActionMessage}</p>}
+                </section>
+
+                <section className="workspace-panel knowledge-list-panel">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">
+                        {activeKnowledgeSourceCount} 份可检索 / {visibleKnowledgeSources.length} 份总资料
+                      </p>
+                      <h3>已导入资料</h3>
+                    </div>
+                  </div>
+                  <div className="memory-note">
+                    <p>检索先使用关键词和轻量模糊匹配，向量检索留到后续版本。</p>
+                    <p>知识片段会标记为“用户导入资料”，不会混入长期记忆，也不代表模型事实。</p>
+                  </div>
+                  {visibleKnowledgeSources.length === 0 ? (
+                    <div className="empty-state compact">
+                      <FileText size={26} />
+                      <p>
+                        {knowledgeBackendHealth.available
+                          ? "SQLite 里还没有导入资料。粘贴一段文本或 Markdown 后，相关聊天会自动参考命中的片段。"
+                          : "本地 Python 后端未运行，知识库暂不可用；聊天仍可继续，只是不会注入导入资料。"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="knowledge-list">
+                      {visibleKnowledgeSources.map((source) => {
+                        const isDeleted = source.status === "deleted";
+                        return (
+                          <article className={isDeleted ? "knowledge-card inactive" : "knowledge-card"} key={source.id}>
+                            <div className="knowledge-card-row">
+                              <div>
+                                <strong>{source.title}</strong>
+                                <span>{knowledgeSourceTypeLabels[source.sourceType]}</span>
+                              </div>
+                              <span className={isDeleted ? "source-status deleted" : "source-status"}>
+                                {isDeleted ? "已删除" : "可检索"}
+                              </span>
+                            </div>
+                            <div className="knowledge-meta">
+                              <span>{source.chunkCount} 个切片</span>
+                              <span>创建 {formatLocalDateTime(source.createdAt)}</span>
+                              <span>更新 {formatLocalDateTime(source.updatedAt)}</span>
+                            </div>
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              onClick={() => deleteKnowledgeSource(source.id)}
+                              disabled={isDeleted || !knowledgeBackendHealth.available}
+                              title={isDeleted ? "已软删除" : "删除资料"}
+                            >
+                              <Trash2 size={17} />
+                              <span>{isDeleted ? "已删除" : "删除"}</span>
+                            </button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
+import { registerModelProviderIpc } from "./modelProviderProxy";
 import { registerUpdaterIpc } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
@@ -127,6 +128,7 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle("desktop-window:is-maximized", () => mainWindow?.isMaximized() ?? false);
 
+    registerModelProviderIpc();
     registerUpdaterIpc(() => mainWindow);
     createMainWindow();
   });

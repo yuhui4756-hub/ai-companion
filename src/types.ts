@@ -200,6 +200,36 @@ export type StyleSummary = {
   updatedAt: string;
 };
 
+export type KnowledgeSourceStatus = "active" | "deleted";
+export type KnowledgeSourceType = "manual_text" | "markdown";
+
+export type KnowledgeSource = {
+  id: string;
+  title: string;
+  sourceType: KnowledgeSourceType;
+  status: KnowledgeSourceStatus;
+  checksum: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeChunk = {
+  id: string;
+  sourceId: string;
+  chunkIndex: number;
+  content: string;
+  keywords: string[];
+  embeddingJson?: string;
+  status: KnowledgeSourceStatus;
+  createdAt: string;
+};
+
+export type KnowledgeHit = {
+  source: KnowledgeSource;
+  chunk: KnowledgeChunk;
+  score: number;
+};
+
 export type ModelProviderConfig = {
   providerName: string;
   baseURL: string;
@@ -222,6 +252,8 @@ export type LocalDataCategory =
   | "memories"
   | "styleSummaries"
   | "companions"
+  | "knowledgeSources"
+  | "knowledgeChunks"
   | "privacyNotice";
 
 export type SyncCapability = "local_only" | "manual_export" | "user_authorized_sync";
@@ -284,4 +316,4 @@ export type OpenAIChatMessage = {
   content: string;
 };
 
-export type AppView = "chat" | "companion" | "settings" | "memory" | "style";
+export type AppView = "chat" | "companion" | "settings" | "memory" | "style" | "knowledge";

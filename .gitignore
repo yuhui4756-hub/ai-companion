@@ -19,6 +19,12 @@ coverage/
 .env
 .env.*
 !.env.example
+.venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Logs
 *.log
@@ -34,6 +40,10 @@ Thumbs.db
 
 # Local app data
 *.local.json
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
 local-data/
 .playwright-cli/
 output/
