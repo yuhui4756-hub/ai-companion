@@ -50,6 +50,9 @@ npm run desktop:dist
 ```
 
 `desktop:dir` 和 `desktop:dist` 会先用 PyInstaller 构建本地 Python sidecar，并把 `backend/dist/suoyi-backend/` 内置到桌面候选资产的 `resources/python-backend/` 下。本轮只生成本地候选资产，不上传 GitHub Release，也不触发公开自动更新。
+
+下一版公开发布需要总控确认版本号、GitHub Release 上传和自动更新验收后，再更新本页顶部下载链接；在此之前下载入口保持 `v0.1.1`。
+
 ## 从源码本地启动
 
 如果只是使用所依，优先下载上面的 Windows 安装包。下面是开发者或调试时从源码启动 Web 版的方式。
@@ -178,7 +181,7 @@ http://127.0.0.1:5173/
 
 - v0.1.1 已提供 Windows 桌面安装包和公开 GitHub Release，但当前没有代码签名证书。
 - 当前没有后端账号系统，也没有云同步；数据默认保存在本地。核心数据 SQLite 迁移是本机复制导入，失败时继续使用 `localStorage`。
-- 当前公开安装包还未内置 Python sidecar；源码可生成内置 `suoyi-backend.exe` 的本地桌面候选资产，公开发布、版本号升级和 GitHub Release 上传需要后续单独确认。
+- 当前公开安装包还未内置 Python sidecar；源码可生成内置 `suoyi-backend.exe` 的本地桌面候选资产，公开发布、版本号升级、GitHub Release 上传和 README 下载链接切换需要总控后续单独确认。
 - QQ 近期只做 OneBot/NapCat 本地实验骨架；QQ 官方机器人保留为长期合规备选，微信继续暂缓。
 - Release 产物由构建命令生成，不提交进源码仓库。
 

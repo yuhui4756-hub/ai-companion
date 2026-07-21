@@ -37,6 +37,15 @@ npm run backend:build-sidecar
 Invoke-RestMethod http://127.0.0.1:8765/health
 ```
 
+桌面候选资产发布前 smoke：
+
+```powershell
+npm run desktop:dist
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.1
+```
+
+如果总控后续确认发布 `0.1.2`，需先同步 bump `package.json` 和 `package-lock.json`，再重新构建并用 `-ExpectedVersion 0.1.2` 核验。该核验脚本只读检查本地 `release-v06d/`，不会上传 GitHub Release，也不会读取或打印 `GH_TOKEN`。当前候选包不等于公开新版。
+
 ## API 范围
 
 - `GET /health`：返回服务和 SQLite schema 状态，不返回真实密钥。

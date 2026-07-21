@@ -1067,3 +1067,28 @@
 - 总控复核：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 FastAPI/Starlette TestClient 的 httpx 弃用 warning）；`npm run desktop:dist` 通过，并明确使用 `electron-builder --win nsis --publish never`；严格密钥形态扫描无命中；`git diff --check` 无 whitespace error。
 - 候选资产确认：`release-v06d/suoyi-setup-0.1.1.exe`、`.blockmap`、`latest.yml` 和 `release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe` 已生成；构建产物、PyInstaller 产物、测试输出和 SQLite 数据均为 ignored 本地文件，不进入源码提交。
 - 总控决策：本轮只提交源码、打包配置、脚本和文档，不 bump version、不上传 GitHub Release、不公开发布；是否进入 2D 正式发布准备需要用户确认。
+
+### 2D 发布准备启动
+
+- 来源：用户确认可以继续。
+- 当前远端发布状态：GitHub Releases 最新仍为 `v0.1.1`，本轮 2C 候选资产未上传 Release，已安装桌面端不会收到自动更新提示。
+- 总控决策：进入 2D 发布准备/发布验收切分，但正式 bump version、上传 GitHub Release、公开发布和自动更新端到端执行仍需总控最终确认。
+- 任务包状态：已发送给技术架构线程 `019f7ebc-6bf6-70a1-9bea-9d533dfce78e`，要求其切分版本号、安装/升级路径、旧 userData 数据保留、GitHub Release artifacts、自动更新验证、代码签名/SmartScreen 文案和回滚边界。
+
+### 2D 发布准备材料与候选核验复验回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：工程化 2D 发布准备与发布验收支撑复验；本轮只验发布前文档、核验脚本和本地候选资产，不公开发布，不代表工程化 P0 全量完成。
+- 验收结论：2D 发布准备材料与本地候选资产核验通过；阻塞问题无，普通问题无。
+- 版本与发布边界：`package.json.version` 和 `package-lock.json` 根包版本均仍为 `0.1.1`；README 下载地址和 Release 页面仍指向 `v0.1.1`；`desktop:dist` 仍使用 `electron-builder --win nsis --publish never`；本轮未创建、修改、删除或上传 GitHub Release。
+- 核验脚本：`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.1` 通过，确认 installer、blockmap、`latest.yml`、packaged sidecar 存在，且 `latest.yml` version/path/url/size/sha512 与目标 installer 一致；脚本只读检查本地候选资产，不调用发布命令，不读取或打印 `GH_TOKEN`。
+- 验证结果：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 Starlette/FastAPI TestClient deprecation warning）；`npx tsc --noEmit`、`npm run build`、`npm run desktop:build` 通过；`git diff --check` 无 whitespace error；源码和 release 严格 token 形态扫描 0 命中。
+- Packaged smoke：使用临时 `APPDATA/LOCALAPPDATA` 启动 `release-v06d/win-unpacked/所依.exe`，内置 sidecar 在 8765 返回 `/health status=ok dbReady=true schemaVersion=2`；关窗后 app 退出、8765 释放、无候选 app/sidecar 残留；未删除用户真实 localStorage、SQLite、backend/data 或 Electron userData。
+- 可后续优化：`release-v06d/` 仍保留历史本地资产 `suoyi-setup-0.1.0.exe` 与 `.blockmap`，当前不影响通过，因为脚本按 `ExpectedVersion` 精确校验目标资产；后续可让核验脚本对非目标版本 installer/blockmap 给出 warning 或 fail，降低人工误选上传风险。
+- 发布边界：正式公开发布前仍需总控确认版本 bump、重新生成 `0.1.2` 候选包、远端 GitHub Release 上传、自动更新端到端、安装/升级路径数据保留、代码签名/SmartScreen 文案；这些不属于本轮 2D 通过结论。
+
+### 2D 总控最终确认
+
+- 总控复核：`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.1` 通过；`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 Starlette/FastAPI TestClient deprecation warning）；`npm run desktop:build` 通过；严格密钥形态扫描无命中；`git diff --check` 无 whitespace error。
+- 远端边界：本轮前段只读查询 GitHub Releases 显示最新仍为 `v0.1.1`；后续复查遇到 GitHub GraphQL TLS/EOF 网络错误，未执行任何创建、上传、修改或删除 Release 的动作。
+- 总控决策：本轮只提交 2D 发布准备文档和本地候选核验脚本；不 bump version，不上传 GitHub Release，不公开发布。下一步若用户确认正式发布，再单独进入 `v0.1.2` 发布执行与发布验收。
