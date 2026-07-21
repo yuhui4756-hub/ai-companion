@@ -113,6 +113,8 @@ npm run desktop:dist
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.2
 ```
 
+如果本机到 GitHub 的大文件上传链路不稳定，可以在 GitHub Actions 手动触发 `Release desktop` workflow。该 workflow 会按指定 tag 在 Windows runner 上重新构建、核验并上传正式资产，避免把本机 `GH_TOKEN` 或候选包路径写进源码。
+
 核验脚本只读检查本地 `release-v06d/`，不会上传文件、不会调用 `gh release create/upload`，也不会读取或打印 `GH_TOKEN`。它会检查安装包、blockmap、`latest.yml`、`win-unpacked/resources/python-backend/suoyi-backend.exe` 是否存在，并核对 `latest.yml` 中的 `version`、`path/url`、`sha512`、`size` 与安装包文件是否一致；同时拒绝 `.sqlite/.db`、`.env*`、`.venv`、`backend/data` 和常见密钥形态进入候选目录。不要手改 `latest.yml` 的 `sha512`、`size` 或 `path`。
 
 ## 正式发布执行步骤
