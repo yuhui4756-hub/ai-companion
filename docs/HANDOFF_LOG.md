@@ -1040,3 +1040,30 @@
 - 普通问题：阶段文档仍停在 2A/等待 2B，需同步 `PROJECT_CONTEXT.md` 与 `docs/PROJECT_ORCHESTRATION.md`。
 - 总控处理：已同步项目上下文和编排状态，明确 2B 已完成 core snapshot/SQLite 迁移与 Electron dev sidecar，同时标注公开安装包仍未内置 Python 可执行文件和 backend resources，发布/自动更新留到 2C。
 - 可后续优化：2C 单独设计 PyInstaller/资源打包/升级/回滚；补 core migration、Electron sidecar 端口回退、preload 白名单、RAG 注入/删除自动化测试；后续可增加核心数据细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
+
+### 2B 总控最终确认与提交
+
+- 总控复核：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 FastAPI/Starlette TestClient 的 httpx 弃用 warning）；`npx tsc --noEmit` 通过；`npm run build` 通过；`npm run desktop:build` 通过；严格密钥形态扫描无命中。
+- 提交推送：已提交并推送到 `origin/main`，提交 `a3d6acd Add core SQLite migration and Electron sidecar`。
+- 2C 路由：已发送任务给技术架构线程 `019f7ebc-6bf6-70a1-9bea-9d533dfce78e`，要求其切分公开安装包内置 Python resources、PyInstaller/资源打包、自动更新、升级回滚和发布验收任务包。
+
+## 2026-07-21 工程化 2C 本地候选资产验收
+
+### 2C 发布打包与 Python sidecar 资源内置验收回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：工程化 2C 测试验收完成，范围为发布打包与 Python sidecar 资源内置；本轮仅验收本地候选资产，不公开发布，不代表工程化 P0 全量完成。
+- 验收结论：2C 本地候选资产切片通过验收；阻塞问题无，普通问题无。
+- 完成内容：`npm run desktop:dist` 已覆盖 `backend:build-sidecar`、Web 构建、Electron main 构建和 `electron-builder --win nsis --publish never`；生成 `backend/dist/suoyi-backend/suoyi-backend.exe`，并把 packaged 候选所需资源放入 `release-v06d/win-unpacked/resources/python-backend/`。
+- 候选资产：`release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe`、`suoyi-setup-0.1.1.exe`、`.blockmap`、`latest.yml` 均存在；`latest.yml` 仅含本地文件名、sha512、size、releaseDate，无 token。
+- Packaged sidecar 验收：正常 packaged run 下 8765 `/health` 返回 schema v2；8765 被占用时自托管 sidecar 落到 8766；关闭窗口后对应端口释放；缺失 `suoyi-backend.exe` 时主窗口仍可打开并 fallback，未启动新 sidecar；最终 8765-8780、Electron、所依、`suoyi-backend` 均无本轮残留。
+- 2A/2B 回归：packaged resources 内 sidecar 的 knowledge API 导入、重复 409、相关检索、软删除后无命中均通过；core migration 幂等、snapshot 读回、去 Key provider config 和 SQLite 隐私边界均通过；Web UI 默认“予安”不重复、无后端 fallback、知识 UI 导入/删除回归通过。
+- 隐私与安全：未索要、未使用、未记录真实 API Key/token/Cookie/扫码凭证/GitHub token；Python sidecar 仍不接收、不保存、不转发模型 API Key；源码和 release 严格 token 形态扫描 0 命中。
+- 可后续优化：PyInstaller 构建仍有 `Hidden import "tzdata" not found` warning，但 sidecar exe、packaged normal、端口冲突、API smoke 均通过，当前不阻塞；后续若引入依赖时区数据的能力，再显式补 hidden import 或依赖说明。
+- 发布边界：当前候选包版本仍是 `0.1.1`，符合“不 bump version、不公开发布”的任务边界；正式公开发布前仍需总控和用户确认版本号、GitHub Release 上传、自动更新链路、安装/升级路径数据保留，以及代码签名/SmartScreen 边界。
+
+### 2C 总控最终确认
+
+- 总控复核：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 FastAPI/Starlette TestClient 的 httpx 弃用 warning）；`npm run desktop:dist` 通过，并明确使用 `electron-builder --win nsis --publish never`；严格密钥形态扫描无命中；`git diff --check` 无 whitespace error。
+- 候选资产确认：`release-v06d/suoyi-setup-0.1.1.exe`、`.blockmap`、`latest.yml` 和 `release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe` 已生成；构建产物、PyInstaller 产物、测试输出和 SQLite 数据均为 ignored 本地文件，不进入源码提交。
+- 总控决策：本轮只提交源码、打包配置、脚本和文档，不 bump version、不上传 GitHub Release、不公开发布；是否进入 2D 正式发布准备需要用户确认。

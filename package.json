@@ -15,9 +15,10 @@
     "start:local": "npm run dev:open",
     "electron:build-main": "tsc -p electron/tsconfig.json && node scripts/write-electron-package-marker.cjs",
     "electron:dev": "npm run build && npm run electron:build-main && electron .",
+    "backend:build-sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-python-sidecar.ps1",
     "desktop:build": "npm run build && npm run electron:build-main",
-    "desktop:dir": "npm run desktop:build && electron-builder --dir",
-    "desktop:dist": "npm run desktop:build && electron-builder --win nsis"
+    "desktop:dir": "npm run backend:build-sidecar && npm run desktop:build && electron-builder --dir",
+    "desktop:dist": "npm run backend:build-sidecar && npm run desktop:build && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",

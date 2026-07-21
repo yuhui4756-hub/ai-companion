@@ -10,6 +10,18 @@ files:
   - build/icons/**/*
   - package.json
 asar: true
+extraResources:
+  - from: backend/dist/suoyi-backend
+    to: python-backend
+    filter:
+      - "**/*"
+      - "!**/*.sqlite"
+      - "!**/*.sqlite3"
+      - "!**/*.db"
+      - "!**/.env"
+      - "!**/.env.*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
 publish:
   provider: github
   owner: yuhui4756-hub

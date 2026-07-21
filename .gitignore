@@ -25,6 +25,8 @@ coverage/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+backend/build/
+backend/dist/
 
 # Logs
 *.log

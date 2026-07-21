@@ -19,6 +19,24 @@ Invoke-RestMethod http://127.0.0.1:8765/core/status
 
 默认数据库位于 `backend/data/suoyi-dev.sqlite`，可用环境变量 `SUOYI_BACKEND_DB_PATH` 覆盖。`backend/data/`、`.sqlite`、`.db` 文件不会提交进仓库。
 
+## 打包为桌面 sidecar
+
+2C 的桌面候选资产使用 PyInstaller onedir，把后端打成 `backend/dist/suoyi-backend/suoyi-backend.exe`。PyInstaller 只是构建依赖，不是运行依赖：
+
+```powershell
+.\.venv\Scripts\python -m pip install -r backend\requirements-build.txt
+npm run backend:build-sidecar
+```
+
+构建输出只应包含 `suoyi-backend.exe` 和运行依赖，不应包含 `backend/data/`、`.sqlite/.db`、`.env`、`.venv`、测试 fixture 或真实用户数据。桌面候选包会通过 electron-builder `extraResources` 把该目录复制到 `resources/python-backend/`。
+
+可手动检查 exe：
+
+```powershell
+.\backend\dist\suoyi-backend\suoyi-backend.exe --host 127.0.0.1 --port 8765
+Invoke-RestMethod http://127.0.0.1:8765/health
+```
+
 ## API 范围
 
 - `GET /health`：返回服务和 SQLite schema 状态，不返回真实密钥。
@@ -36,4 +54,4 @@ Invoke-RestMethod http://127.0.0.1:8765/core/status
 - provider 配置只保存 `providerName`、`baseURL`、`model`、`options_json` 和 `api_key_ref`；明文 API Key 继续留在 renderer localStorage，不迁入 SQLite。
 - 聊天时，前端只把最新用户输入发给本机后端做知识库检索；命中的知识片段会进入模型请求，并发给用户配置的模型服务商。
 - 删除资料是软删除，不做不可撤销物理清理。
-- Electron 开发态可以托管 `.venv` 里的 uvicorn 进程；当前打包产物未内置 Python 可执行文件和 backend 资源，发布前必须另做打包方案验收。
+- Electron 开发态可以托管 `.venv` 里的 uvicorn 进程；桌面候选打包态可以托管 `resources/python-backend/suoyi-backend.exe`。当前公开安装包仍未发布新版；公开发布前必须再经过测试验收和总控确认。

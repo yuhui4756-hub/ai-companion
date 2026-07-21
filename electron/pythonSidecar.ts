@@ -20,6 +20,20 @@ type PythonSidecarOptions = {
   isPackaged: boolean;
 };
 
+type SidecarLaunchSpec =
+  | {
+      ok: true;
+      executable: string;
+      args: string[];
+      cwd: string;
+      startingMessage: string;
+      availableMessage: string;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
 const DEFAULT_PORT = 8765;
 const MAX_PORT = 8780;
 const HOST = "127.0.0.1";
@@ -46,6 +60,52 @@ function getPythonExecutable(projectRoot: string): string {
   return process.platform === "win32"
     ? path.join(projectRoot, ".venv", "Scripts", "python.exe")
     : path.join(projectRoot, ".venv", "bin", "python");
+}
+
+function getResourcesPath(): string {
+  const electronProcess = process as NodeJS.Process & { resourcesPath?: string };
+  return electronProcess.resourcesPath ?? path.join(options?.projectRoot ?? "", "..");
+}
+
+function getPackagedSidecarExecutable(): string {
+  const executableName = process.platform === "win32" ? "suoyi-backend.exe" : "suoyi-backend";
+  return path.join(getResourcesPath(), "python-backend", executableName);
+}
+
+function getSidecarLaunchSpec(nextOptions: PythonSidecarOptions, port: number): SidecarLaunchSpec {
+  if (nextOptions.isPackaged) {
+    const executable = getPackagedSidecarExecutable();
+    if (!fs.existsSync(executable)) {
+      return {
+        ok: false,
+        message: "当前安装包缺少 Python 后端资源，已保留 localStorage 回退。",
+      };
+    }
+    return {
+      ok: true,
+      executable,
+      args: ["--host", HOST, "--port", String(port)],
+      cwd: path.dirname(executable),
+      startingMessage: "正在启动随包 Python 后端...",
+      availableMessage: "随包 Python 后端已由 Electron 托管。",
+    };
+  }
+
+  const executable = getPythonExecutable(nextOptions.projectRoot);
+  if (!fs.existsSync(executable)) {
+    return {
+      ok: false,
+      message: "未找到项目 .venv Python，请先按 backend/README.md 安装依赖。",
+    };
+  }
+  return {
+    ok: true,
+    executable,
+    args: ["-m", "uvicorn", "backend.app.main:app", "--host", HOST, "--port", String(port)],
+    cwd: nextOptions.projectRoot,
+    startingMessage: "正在启动本机 Python 后端...",
+    availableMessage: "Python 后端已由 Electron 托管。",
+  };
 }
 
 function isPortFree(port: number): Promise<boolean> {
@@ -109,20 +169,12 @@ async function startSidecar(): Promise<PythonBackendStatusPayload> {
       });
     }
 
-    if (options.isPackaged) {
+    const launchSpec = getSidecarLaunchSpec(options, portInfo.port);
+    if (!launchSpec.ok) {
       return setStatus({
         status: "unavailable",
         managed: false,
-        message: "当前安装包未内置 Python 后端资源，已降级为手动后端/浏览器调试模式。",
-      });
-    }
-
-    const pythonExecutable = getPythonExecutable(options.projectRoot);
-    if (!fs.existsSync(pythonExecutable)) {
-      return setStatus({
-        status: "unavailable",
-        managed: false,
-        message: "未找到项目 .venv Python，请先按 backend/README.md 安装依赖。",
+        message: launchSpec.message,
       });
     }
 
@@ -133,14 +185,14 @@ async function startSidecar(): Promise<PythonBackendStatusPayload> {
       endpoint: portInfo.endpoint,
       port: portInfo.port,
       managed: true,
-      message: "正在启动本机 Python 后端...",
+      message: launchSpec.startingMessage,
     });
 
     childProcess = spawn(
-      pythonExecutable,
-      ["-m", "uvicorn", "backend.app.main:app", "--host", HOST, "--port", String(portInfo.port)],
+      launchSpec.executable,
+      launchSpec.args,
       {
-        cwd: options.projectRoot,
+        cwd: launchSpec.cwd,
         env: {
           ...process.env,
           SUOYI_BACKEND_DB_PATH: dbPath,
@@ -184,7 +236,7 @@ async function startSidecar(): Promise<PythonBackendStatusPayload> {
       endpoint: portInfo.endpoint,
       port: portInfo.port,
       managed: true,
-      message: "Python 后端已由 Electron 托管。",
+      message: launchSpec.availableMessage,
     });
   })();
 
