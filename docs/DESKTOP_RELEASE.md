@@ -1,6 +1,6 @@
 # 所依桌面版发布说明
 
-v0.1.1 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
+v0.1.2 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -14,7 +14,7 @@ npm run desktop:dist
 - `desktop:dist` 生成 Windows NSIS 安装包 `.exe`、`latest.yml` 和 blockmap。
 - `desktop:dir` 和 `desktop:dist` 会先执行 `backend:build-sidecar`，用 PyInstaller onedir 生成 `backend/dist/suoyi-backend/`，再通过 electron-builder `extraResources` 内置到 `resources/python-backend/`。
 - Web 版命令 `npm run dev`、`npm run build`、`启动AI伴侣.bat` 保留。
-- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.1.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
+- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.2.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
 
 ## Python sidecar 候选资源
 
@@ -84,17 +84,17 @@ publish:
 
 公开 release artifacts 至少保留：
 
-- `suoyi-setup-0.1.1.exe`
-- `suoyi-setup-0.1.1.exe.blockmap`
+- `suoyi-setup-0.1.2.exe`
+- `suoyi-setup-0.1.2.exe.blockmap`
 - `latest.yml`
 
 开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由总控确认后，在 GitHub Releases 中上传以上三个文件；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
 
-`package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.0`，再发布 `0.1.1`，不要用同版本测试更新。
+`package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.1`，再发布 `0.1.2`，不要用同版本测试更新。
 
-## v0.1.2 发布准备清单（待总控确认）
+## v0.1.2 发布执行清单
 
-2D 只准备正式发布材料和本地候选资产核验，不直接公开发布。当前公开最新版仍是 `v0.1.1`，`README.md` 下载入口也必须继续指向 `v0.1.1`，直到总控确认并完成新版 Release 后再更新。
+用户已确认进入 `v0.1.2` 正式发布执行。本轮仍保持构建与上传分离：`desktop:dist` 只生成本地候选资产，不自动发布；总控核验后手动创建 GitHub Release 并上传正式资产。
 
 建议正式发布目标：
 
@@ -113,17 +113,11 @@ npm run desktop:dist
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.2
 ```
 
-当前源码版本仍是 `0.1.1` 时，可用同一脚本核验 2C/2D 本地候选资产：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.1
-```
-
 核验脚本只读检查本地 `release-v06d/`，不会上传文件、不会调用 `gh release create/upload`，也不会读取或打印 `GH_TOKEN`。它会检查安装包、blockmap、`latest.yml`、`win-unpacked/resources/python-backend/suoyi-backend.exe` 是否存在，并核对 `latest.yml` 中的 `version`、`path/url`、`sha512`、`size` 与安装包文件是否一致；同时拒绝 `.sqlite/.db`、`.env*`、`.venv`、`backend/data` 和常见密钥形态进入候选目录。不要手改 `latest.yml` 的 `sha512`、`size` 或 `path`。
 
-## 总控确认后才能执行的动作
+## 正式发布执行步骤
 
-以下动作会改变真实发布状态，开发线程不得自行执行：
+以下动作会改变真实发布状态，只能由总控在用户确认后执行：
 
 1. 将 `package.json.version` 从 `0.1.1` 升到 `0.1.2`；如果存在 `package-lock.json`，其中根包版本也必须同步。
 2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.2.exe`、`suoyi-setup-0.1.2.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.2` 产物。

@@ -6,8 +6,8 @@
 
 Windows 用户可以直接下载安装包：
 
-- 下载地址：[suoyi-setup-0.1.1.exe](https://github.com/yuhui4756-hub/ai-companion/releases/download/v0.1.1/suoyi-setup-0.1.1.exe)
-- Release 页面：[所依 v0.1.1](https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.1)
+- 下载地址：[suoyi-setup-0.1.2.exe](https://github.com/yuhui4756-hub/ai-companion/releases/download/v0.1.2/suoyi-setup-0.1.2.exe)
+- Release 页面：[所依 v0.1.2](https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.2)
 
 当前安装包还没有配置代码签名，Windows 可能提示“未知发布者”。这是当前版本的已知边界，不需要关闭系统安全防护。
 
@@ -35,9 +35,9 @@ Windows 用户可以直接下载安装包：
 
 ## Windows 桌面版：所依
 
-v0.1.1 已发布 Windows 桌面安装包。用户可见应用名统一为“所依”，桌面窗口会隐藏系统默认 `File / Edit / View / Window / Help` 菜单栏，改用应用内自定义标题栏和最小化、最大化/还原、关闭按钮，并接入正式应用图标。
+v0.1.2 已发布 Windows 桌面安装包。用户可见应用名统一为“所依”，桌面窗口会隐藏系统默认 `File / Edit / View / Window / Help` 菜单栏，改用应用内自定义标题栏和最小化、最大化/还原、关闭按钮，并接入正式应用图标。
 
-桌面版更新源使用公开 GitHub Releases。客户端不内置 GitHub token；发布 token 只能用于发布端环境变量或 CI Secret，不能写入客户端或配置文件。当前线上版本和安装包版本都是 `0.1.1`，因此不会提示有新版本；后续发布更高版本号时才会触发更新提示。
+桌面版更新源使用公开 GitHub Releases。客户端不内置 GitHub token；发布 token 只能用于发布端环境变量或 CI Secret，不能写入客户端或配置文件。已安装 `0.1.1` 的桌面端会在检测到 `0.1.2` 后显示更新提示，并由用户确认后下载和重启安装。
 
 网页版和桌面版的数据空间不同。数据迁移需要通过“设置 -> 从网页版导入备份”显式完成，API Key 不在备份里，需要在桌面版重新填写。
 
@@ -49,9 +49,7 @@ npm run desktop:dir
 npm run desktop:dist
 ```
 
-`desktop:dir` 和 `desktop:dist` 会先用 PyInstaller 构建本地 Python sidecar，并把 `backend/dist/suoyi-backend/` 内置到桌面候选资产的 `resources/python-backend/` 下。本轮只生成本地候选资产，不上传 GitHub Release，也不触发公开自动更新。
-
-下一版公开发布需要总控确认版本号、GitHub Release 上传和自动更新验收后，再更新本页顶部下载链接；在此之前下载入口保持 `v0.1.1`。
+`desktop:dir` 和 `desktop:dist` 会先用 PyInstaller 构建本地 Python sidecar，并把 `backend/dist/suoyi-backend/` 内置到桌面候选资产的 `resources/python-backend/` 下。`desktop:dist` 仍固定 `--publish never`，避免构建时误上传；公开发布由总控核验后手动上传到 GitHub Release。
 
 ## 从源码本地启动
 
@@ -127,7 +125,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 Invoke-RestMethod http://127.0.0.1:8765/core/status
 ```
 
-桌面开发态会尝试由 Electron 自动托管 `.venv` 里的 Python 后端：默认端口 `8765`，占用时尝试 `8766-8780`。桌面候选打包态会启动 `resources/python-backend/suoyi-backend.exe`。托管时 SQLite 文件会放到 Electron `userData` 下的 `backend/suoyi.sqlite`。当前公开安装包仍是 `0.1.1`，本轮只支持本地候选资产验证，不公开发布新版安装包。
+桌面开发态会尝试由 Electron 自动托管 `.venv` 里的 Python 后端：默认端口 `8765`，占用时尝试 `8766-8780`。桌面打包态会启动 `resources/python-backend/suoyi-backend.exe`。托管时 SQLite 文件会放到 Electron `userData` 下的 `backend/suoyi.sqlite`。`v0.1.2` 公开安装包已内置 Python sidecar，用户不需要单独安装 Python 后端。
 
 ## 怎么使用
 
@@ -179,9 +177,9 @@ http://127.0.0.1:5173/
 
 ## 当前边界
 
-- v0.1.1 已提供 Windows 桌面安装包和公开 GitHub Release，但当前没有代码签名证书。
+- v0.1.2 已提供 Windows 桌面安装包和公开 GitHub Release，但当前没有代码签名证书。
 - 当前没有后端账号系统，也没有云同步；数据默认保存在本地。核心数据 SQLite 迁移是本机复制导入，失败时继续使用 `localStorage`。
-- 当前公开安装包还未内置 Python sidecar；源码可生成内置 `suoyi-backend.exe` 的本地桌面候选资产，公开发布、版本号升级、GitHub Release 上传和 README 下载链接切换需要总控后续单独确认。
+- 当前公开安装包已内置 Python sidecar、本地 SQLite 知识库和核心数据迁移能力；后续仍需继续完善细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
 - QQ 近期只做 OneBot/NapCat 本地实验骨架；QQ 官方机器人保留为长期合规备选，微信继续暂缓。
 - Release 产物由构建命令生成，不提交进源码仓库。
 
