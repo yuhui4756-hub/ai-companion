@@ -128,6 +128,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 5. 上传前后核对远端 assets 名称、大小、公开下载 URL，以及远端 `latest.yml` 内容。`GH_TOKEN` 只能由总控/CI 在发布端环境变量或 Secret 使用，不得写入源码、文档、日志、`latest.yml` 或安装包。
 6. 在公开下载可读后，再更新 `README.md` 下载链接和 Release 页面链接。
 
+## v0.1.2 公开发布结果
+
+- Release 页面：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.2`。
+- 发布方式：本机大文件上传多次被远端断开后，改用 GitHub Actions 手动 workflow `Release desktop` 在 Windows runner 上重新构建、核验、上传并发布。
+- 远端资产：`latest.yml`、`suoyi-setup-0.1.2.exe`、`suoyi-setup-0.1.2.exe.blockmap` 均已上传；远端 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.2` installer。
+- 发布后仍未做安装覆盖式自动更新验收；如要验证 `v0.1.1 -> v0.1.2`，需要在保护用户数据的前提下单独执行。
+
 ## Release notes 模板
 
 ```md

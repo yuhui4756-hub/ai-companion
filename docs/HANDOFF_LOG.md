@@ -1092,3 +1092,19 @@
 - 总控复核：`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.1` 通过；`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 Starlette/FastAPI TestClient deprecation warning）；`npm run desktop:build` 通过；严格密钥形态扫描无命中；`git diff --check` 无 whitespace error。
 - 远端边界：本轮前段只读查询 GitHub Releases 显示最新仍为 `v0.1.1`；后续复查遇到 GitHub GraphQL TLS/EOF 网络错误，未执行任何创建、上传、修改或删除 Release 的动作。
 - 总控决策：本轮只提交 2D 发布准备文档和本地候选核验脚本；不 bump version，不上传 GitHub Release，不公开发布。下一步若用户确认正式发布，再单独进入 `v0.1.2` 发布执行与发布验收。
+
+## 2026-07-21 v0.1.2 正式发布执行
+
+### 发布执行与远端验收
+
+- 来源：用户确认可以进入正式发布执行。
+- 版本提交：已将 `package.json` 和 `package-lock.json` 根包版本升级到 `0.1.2`，同步 `README.md`、`PROJECT_CONTEXT.md`、`docs/DESKTOP_RELEASE.md`、`docs/PROJECT_ORCHESTRATION.md`，并提交推送 `44c798f Prepare Suoyi v0.1.2 release` 到 `origin/main`。
+- 发布 tag：已创建并推送 `v0.1.2`，指向提交 `44c798f4d4aca30cefa29251c446359af2eeb0f4`。
+- 本地发布前验证：`./.venv/Scripts/python -m pytest backend/tests` 通过（6 passed，1 个 Starlette/FastAPI TestClient deprecation warning）；`npm run desktop:dist` 通过；`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2` 通过；源码和 release 严格密钥形态扫描无命中；`git diff --check` 无 whitespace error，仅 Windows CRLF 提示。
+- 本机上传情况：先尝试用 `gh release create/upload` 上传本地 `suoyi-setup-0.1.2.exe`，多次被远端断开；未形成公开半成品 Release，后续保留空草稿并改用 GitHub Actions。
+- 发布 workflow：新增并推送 `28f998e Add manual desktop release workflow`；手动触发 `Release desktop` workflow，run `29810653064` 成功完成，步骤包含 checkout tag、安装依赖、后端测试、`npm run desktop:dist`、候选核验和资产上传发布。
+- 公开 Release：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.2` 已发布，状态为非 draft、非 prerelease，发布时间 `2026-07-21T07:32:21Z`。
+- 远端资产：`latest.yml` 339 bytes；`suoyi-setup-0.1.2.exe` 106352683 bytes；`suoyi-setup-0.1.2.exe.blockmap` 109952 bytes，三者均为 uploaded 状态。
+- 远端下载验收：公开 `latest.yml` 可下载，内容为 `version: 0.1.2`、`path: suoyi-setup-0.1.2.exe`、`size: 106352683`；公开 installer URL `HEAD` 返回 200。
+- 数据与隐私：未索要、未使用、未记录真实 API Key/token/Cookie/扫码凭证；发布 token 仅由本机 GitHub CLI/Actions 环境使用，未写入源码、文档、日志、`latest.yml` 或安装包；Release 资产不包含用户 SQLite、`.env`、`.venv` 或 `backend/data`。
+- 未完成边界：未在用户真实安装环境执行 `v0.1.1 -> v0.1.2` 自动更新端到端，因为这会安装/覆盖本机应用并触碰真实 userData；若继续验收，应单独以可回退、可识别 marker 的方式执行。
