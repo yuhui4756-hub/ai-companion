@@ -1108,3 +1108,20 @@
 - 远端下载验收：公开 `latest.yml` 可下载，内容为 `version: 0.1.2`、`path: suoyi-setup-0.1.2.exe`、`size: 106352683`；公开 installer URL `HEAD` 返回 200。
 - 数据与隐私：未索要、未使用、未记录真实 API Key/token/Cookie/扫码凭证；发布 token 仅由本机 GitHub CLI/Actions 环境使用，未写入源码、文档、日志、`latest.yml` 或安装包；Release 资产不包含用户 SQLite、`.env`、`.venv` 或 `backend/data`。
 - 未完成边界：未在用户真实安装环境执行 `v0.1.1 -> v0.1.2` 自动更新端到端，因为这会安装/覆盖本机应用并触碰真实 userData；若继续验收，应单独以可回退、可识别 marker 的方式执行。
+
+## 2026-07-22 RAG-Q1 质量升级验收
+
+### RAG-Q1 结构化切片与 FTS5/BM25 基线验收回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：RAG-Q1 质量升级验收，范围为结构化切片、FTS5/BM25 基线检索和 prompt 注入门槛；本轮不是远程 embedding/hybrid 完成，也不代表 RAG 高准确率已最终完成。
+- 验收结论：通过，阻塞问题无。
+- 完成内容：开发实现线程完成 schema v3、结构化知识切片、FTS5/BM25 基线、低置信/泛字段 query 的 `shouldInject=false` 与 `needsClarification=true`、旧库非破坏性迁移回填、FTS 不可用时关键词 fallback，以及前端知识库检索响应字段适配。
+- 修改文件：`README.md`、`backend/README.md`、`backend/app/db.py`、`backend/app/knowledge.py`、`backend/app/main.py`、`backend/app/schemas.py`、`backend/tests/test_knowledge.py`、`backend/tests/test_rag_quality.py`、`src/backend/pythonBackendClient.ts`。
+- 验证结果：`./.venv/Scripts/python -m pytest backend/tests` 通过（12 passed，1 个 FastAPI/Starlette TestClient 的 httpx 弃用 warning）；`npx tsc --noEmit`、`npm run build`、`npm run desktop:build`、`npm run backend:build-sidecar`、`npm run desktop:dir`、`npm run desktop:dist` 均通过；`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2` 通过；源码和 release 严格密钥形态扫描 0 命中；`git diff --check` 无 whitespace error。
+- RAG 质量烟测：临时 SQLite 导入 6 份质量夹具后，泛问题“预算金额是多少？”和“负责人是谁？”不注入 prompt 且要求澄清；无关问题空命中；明确编号 `XLP-2026-041` top1 命中目标资料；指定资料问题只注入该资料；软删除后同类 query 0 hits 且空 `promptContext`。
+- 结构化切片与迁移：`knowledge_chunks` 新增 `heading_path`、`chunk_type`、`content_hash`、`chunker_version`、`token_estimate`、`metadata_json`、`search_text`；Markdown 切片覆盖 `fact_block/list/table_block/qa`；旧库初始化到 schema v3 不破坏旧 source/chunk，首次检索前可回填检索元数据。
+- 数据与隐私：验收只使用临时 SQLite 与假/测试数据，未读取、导出、删除用户真实 localStorage、SQLite、Electron userData 或知识库资料；未索要、未使用、未记录真实 API Key/token/Cookie/GitHub token；未触发真实模型请求。
+- 普通问题：`backend/README.md` 的桌面候选资产 smoke 片段仍停在 `0.1.1` 候选包表述，与当前 `0.1.2` 公开状态不一致。
+- 总控处理：已同步 `backend/README.md` 为 `0.1.2` 公开后的发布核验口径；该文档问题关闭。
+- 可后续优化：远程 embedding/hybrid fusion、召回解释 UI、持续 RAG 质量评测基准、PyInstaller `tzdata` warning 清理、正式签名/自动更新端到端验收仍按后续阶段推进。

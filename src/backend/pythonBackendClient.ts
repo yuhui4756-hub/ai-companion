@@ -102,11 +102,19 @@ export type PythonKnowledgeHit = {
   chunkIndex: number;
   content: string;
   score: number;
+  headingPath?: string;
+  chunkType?: string;
+  scores?: Record<string, number>;
 };
 
 export type PythonKnowledgeSearchResult = {
   hits: PythonKnowledgeHit[];
   promptContext: string;
+  mode?: string;
+  shouldInject?: boolean;
+  needsClarification?: boolean;
+  reason?: string;
+  ftsReady?: boolean;
 };
 
 export class PythonBackendError extends Error {

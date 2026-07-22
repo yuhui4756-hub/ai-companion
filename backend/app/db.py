@@ -4,7 +4,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def get_db_path() -> Path:
@@ -143,6 +143,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             ON migration_runs(created_at);
         """
     )
+    ensure_knowledge_v3_schema(connection)
     connection.execute(
         """
         INSERT INTO app_meta(key, value, updated_at)
@@ -152,3 +153,72 @@ def init_db(connection: sqlite3.Connection) -> None:
         (str(SCHEMA_VERSION),),
     )
     connection.commit()
+
+
+def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+
+
+def add_column_if_missing(connection: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+    if column_name not in table_columns(connection, table_name):
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def sqlite_supports_fts5(connection: sqlite3.Connection) -> bool:
+    try:
+        connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.suoyi_fts5_probe USING fts5(value)")
+        connection.execute("DROP TABLE IF EXISTS temp.suoyi_fts5_probe")
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def set_app_meta(connection: sqlite3.Connection, key: str, value: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO app_meta(key, value, updated_at)
+        VALUES(?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (key, value),
+    )
+
+
+def ensure_knowledge_v3_schema(connection: sqlite3.Connection) -> None:
+    add_column_if_missing(connection, "knowledge_chunks", "heading_path", "TEXT NOT NULL DEFAULT ''")
+    add_column_if_missing(connection, "knowledge_chunks", "chunk_type", "TEXT NOT NULL DEFAULT 'paragraph'")
+    add_column_if_missing(connection, "knowledge_chunks", "content_hash", "TEXT NOT NULL DEFAULT ''")
+    add_column_if_missing(connection, "knowledge_chunks", "chunker_version", "TEXT NOT NULL DEFAULT 'v1'")
+    add_column_if_missing(connection, "knowledge_chunks", "token_estimate", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(connection, "knowledge_chunks", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+    add_column_if_missing(connection, "knowledge_chunks", "search_text", "TEXT NOT NULL DEFAULT ''")
+
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_type_version
+            ON knowledge_chunks(chunk_type, chunker_version)
+        """
+    )
+
+    fts_available = sqlite_supports_fts5(connection)
+    set_app_meta(connection, "fts5Available", "true" if fts_available else "false")
+    if not fts_available:
+        return
+
+    try:
+        connection.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts
+            USING fts5(
+                chunk_id UNINDEXED,
+                source_id UNINDEXED,
+                source_title,
+                heading_path,
+                content,
+                search_text,
+                tokenize = 'unicode61'
+            )
+            """
+        )
+    except sqlite3.Error:
+        set_app_meta(connection, "fts5Available", "false")

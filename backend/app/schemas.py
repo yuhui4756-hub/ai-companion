@@ -27,6 +27,8 @@ class DbStatusResponse(BaseModel):
     activeSourceCount: int
     chunkCount: int
     activeChunkCount: int
+    ftsReady: bool = False
+    knowledgeSearchMode: str = "keyword"
     coreCounts: Optional["CoreCounts"] = None
 
 
@@ -52,6 +54,9 @@ class KnowledgeHitResponse(BaseModel):
     chunkIndex: int
     content: str
     score: float
+    headingPath: str = ""
+    chunkType: str = "paragraph"
+    scores: dict[str, float] = Field(default_factory=dict)
 
 
 class SearchKnowledgeRequest(BaseModel):
@@ -63,6 +68,11 @@ class SearchKnowledgeRequest(BaseModel):
 class SearchKnowledgeResponse(BaseModel):
     hits: list[KnowledgeHitResponse]
     promptContext: str
+    mode: str = "keyword"
+    shouldInject: bool = False
+    needsClarification: bool = False
+    reason: str = ""
+    ftsReady: bool = False
 
 
 class DeleteKnowledgeSourceResponse(BaseModel):

@@ -17,7 +17,7 @@ def test_health_initializes_sqlite(tmp_path: Path, monkeypatch) -> None:
     data = response.json()
     assert data["status"] == "ok"
     assert data["dbReady"] is True
-    assert data["schemaVersion"] == 2
+    assert data["schemaVersion"] == 3
     assert not str(tmp_path) in data["dbPath"]
 
 

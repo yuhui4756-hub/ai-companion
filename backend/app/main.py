@@ -74,13 +74,15 @@ def health() -> HealthResponse:
 
 @app.get("/db/status", response_model=DbStatusResponse)
 def db_status(connection: sqlite3.Connection = Depends(get_connection)) -> DbStatusResponse:
-    source_count, active_source_count, chunk_count, active_chunk_count = get_db_counts(connection)
+    source_count, active_source_count, chunk_count, active_chunk_count, fts_ready, knowledge_search_mode = get_db_counts(connection)
     return DbStatusResponse(
         schemaVersion=SCHEMA_VERSION,
         sourceCount=source_count,
         activeSourceCount=active_source_count,
         chunkCount=chunk_count,
         activeChunkCount=active_chunk_count,
+        ftsReady=fts_ready,
+        knowledgeSearchMode=knowledge_search_mode,
         coreCounts=get_core_counts(connection),
     )
 

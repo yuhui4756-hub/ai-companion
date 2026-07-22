@@ -2,6 +2,8 @@
 
 这是工程化第二轮的本机 sidecar backend，负责本地 SQLite 数据、知识库切分检索和核心数据快照迁移。它不接收、不保存、不转发模型 API Key。
 
+当前 schema v3 已加入结构化知识切片和本地 FTS5/BM25 基线检索；如果运行环境不支持 FTS5，会优雅回退到本地关键词评分。低置信或只有“预算/负责人/截止日期”等泛字段的问题不会生成 `promptContext`，避免把多份资料误混入聊天提示词。
+
 ## 启动
 
 ```powershell
@@ -41,15 +43,15 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 
 ```powershell
 npm run desktop:dist
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.2
 ```
 
-如果总控后续确认发布 `0.1.2`，需先同步 bump `package.json` 和 `package-lock.json`，再重新构建并用 `-ExpectedVersion 0.1.2` 核验。该核验脚本只读检查本地 `release-v06d/`，不会上传 GitHub Release，也不会读取或打印 `GH_TOKEN`。当前候选包不等于公开新版。
+`v0.1.2` 已公开发布；后续若准备发布新版本，需先同步 bump `package.json` 和 `package-lock.json`，再重新构建并用对应版本号核验。该核验脚本只读检查本地 `release-v06d/`，不会上传 GitHub Release，也不会读取或打印 `GH_TOKEN`。
 
 ## API 范围
 
 - `GET /health`：返回服务和 SQLite schema 状态，不返回真实密钥。
-- `GET /db/status`：返回知识库和核心数据计数。
+- `GET /db/status`：返回知识库和核心数据计数，并包含 `ftsReady`、`knowledgeSearchMode`。
 - `POST /knowledge/sources`、`GET /knowledge/sources`、`DELETE /knowledge/sources/{source_id}`、`POST /knowledge/search`：2A 知识库/RAG 能力。
 - `GET /core/status`：返回核心数据 SQLite 计数和最近一次 legacy snapshot 迁移状态。
 - `GET /core/snapshot`：读取伴侣、消息、长期记忆、风格摘要和去 Key 的 provider 配置。
@@ -62,5 +64,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 - 知识库 sources/chunks、伴侣、聊天、长期记忆、风格摘要和去 Key 的 provider 配置会写入 SQLite；旧 localStorage 仍保留作回退。
 - provider 配置只保存 `providerName`、`baseURL`、`model`、`options_json` 和 `api_key_ref`；明文 API Key 继续留在 renderer localStorage，不迁入 SQLite。
 - 聊天时，前端只把最新用户输入发给本机后端做知识库检索；命中的知识片段会进入模型请求，并发给用户配置的模型服务商。
+- RAG-Q1 不调用远程 embedding；后续若启用远程向量检索，必须让用户明确开启，并说明导入资料 chunk 和检索 query 会发送给用户配置的 embedding 服务商。API Key 仍不得写入 SQLite、日志、导出或安装包。
 - 删除资料是软删除，不做不可撤销物理清理。
-- Electron 开发态可以托管 `.venv` 里的 uvicorn 进程；桌面候选打包态可以托管 `resources/python-backend/suoyi-backend.exe`。当前公开安装包仍未发布新版；公开发布前必须再经过测试验收和总控确认。
+- Electron 开发态可以托管 `.venv` 里的 uvicorn 进程；桌面打包态可以托管 `resources/python-backend/suoyi-backend.exe`。
