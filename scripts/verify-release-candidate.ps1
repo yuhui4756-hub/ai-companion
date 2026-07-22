@@ -1,6 +1,7 @@
 param(
   [string]$ReleaseDir = "release-v06d",
-  [string]$ExpectedVersion = "0.1.1"
+  [string]$ExpectedVersion = "0.1.1",
+  [int]$ExpectedSchemaVersion = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,10 +82,141 @@ function Test-KnownFalsePositive([string]$value) {
   return $value -eq "sk-loader-ios"
 }
 
+function Get-SourceSchemaVersion {
+  $dbSourcePath = Join-Path $projectRoot "backend\app\db.py"
+  if (-not (Test-Path -LiteralPath $dbSourcePath -PathType Leaf)) {
+    Fail "Cannot infer schema version because backend/app/db.py is missing; pass -ExpectedSchemaVersion explicitly"
+  }
+  $dbSource = Get-Content -LiteralPath $dbSourcePath -Raw -Encoding UTF8
+  $match = [regex]::Match($dbSource, "(?m)^\s*SCHEMA_VERSION\s*=\s*(\d+)\s*$")
+  if (-not $match.Success) {
+    Fail "Cannot infer schema version from backend/app/db.py; pass -ExpectedSchemaVersion explicitly"
+  }
+  return [int]$match.Groups[1].Value
+}
+
+function Test-LocalPortAvailable([int]$port) {
+  $listener = $null
+  try {
+    $endpoint = New-Object System.Net.IPEndPoint ([System.Net.IPAddress]::Parse("127.0.0.1")), $port
+    $listener = New-Object System.Net.Sockets.TcpListener $endpoint
+    $listener.Start()
+    return $true
+  }
+  catch {
+    return $false
+  }
+  finally {
+    if ($null -ne $listener) {
+      $listener.Stop()
+    }
+  }
+}
+
+function Get-SidecarSmokePort {
+  $ports = @(8780) + (8765..8779)
+  foreach ($port in $ports) {
+    if (Test-LocalPortAvailable $port) {
+      return $port
+    }
+  }
+  Fail "No available local port in 8765-8780 for packaged sidecar smoke"
+}
+
+function Test-HasJsonProperty($value, [string]$propertyName) {
+  return $null -ne $value -and $value.PSObject.Properties.Name -contains $propertyName
+}
+
+function Invoke-SidecarJsonGet([string]$url) {
+  return Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 2
+}
+
+function Invoke-PackagedSidecarSmoke([string]$exePath) {
+  $port = Get-SidecarSmokePort
+  $tempBase = [System.IO.Path]::GetTempPath()
+  $tempDir = Join-Path $tempBase "suoyi-release-sidecar-smoke-$([guid]::NewGuid().ToString('N'))"
+  $dbPath = Join-Path $tempDir "suoyi-smoke.sqlite"
+  $oldDbPath = [Environment]::GetEnvironmentVariable("SUOYI_BACKEND_DB_PATH", "Process")
+  $sidecarProcess = $null
+
+  try {
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+    [Environment]::SetEnvironmentVariable("SUOYI_BACKEND_DB_PATH", $dbPath, "Process")
+
+    $sidecarProcess = Start-Process `
+      -FilePath $exePath `
+      -ArgumentList @("--host", "127.0.0.1", "--port", [string]$port) `
+      -WorkingDirectory (Split-Path -Parent $exePath) `
+      -PassThru `
+      -WindowStyle Hidden
+
+    $health = $null
+    for ($index = 0; $index -lt 40; $index++) {
+      if ($sidecarProcess.HasExited) {
+        Fail "Packaged sidecar exited before health check completed with code $($sidecarProcess.ExitCode)"
+      }
+      try {
+        $health = Invoke-SidecarJsonGet "http://127.0.0.1:$port/health"
+        break
+      }
+      catch {
+        Start-Sleep -Milliseconds 250
+      }
+    }
+    if ($null -eq $health) {
+      Fail "Packaged sidecar health check timed out on port $port"
+    }
+    if ($health.status -ne "ok") {
+      Fail "Packaged sidecar /health status '$($health.status)' is not ok"
+    }
+    if ($health.dbReady -ne $true) {
+      Fail "Packaged sidecar /health dbReady is not true"
+    }
+    if ([int]$health.schemaVersion -lt $ExpectedSchemaVersion) {
+      Fail "Packaged sidecar schemaVersion '$($health.schemaVersion)' is lower than expected '$ExpectedSchemaVersion'"
+    }
+
+    $dbStatus = Invoke-SidecarJsonGet "http://127.0.0.1:$port/db/status"
+    if (-not (Test-HasJsonProperty $dbStatus "ftsReady")) {
+      Fail "Packaged sidecar /db/status missing ftsReady"
+    }
+    if (-not (Test-HasJsonProperty $dbStatus "knowledgeSearchMode")) {
+      Fail "Packaged sidecar /db/status missing knowledgeSearchMode"
+    }
+
+    Pass "packaged sidecar smoke passed on port $port with schemaVersion $($health.schemaVersion)"
+  }
+  finally {
+    if ($null -eq $oldDbPath) {
+      [Environment]::SetEnvironmentVariable("SUOYI_BACKEND_DB_PATH", $null, "Process")
+    }
+    else {
+      [Environment]::SetEnvironmentVariable("SUOYI_BACKEND_DB_PATH", $oldDbPath, "Process")
+    }
+
+    if ($null -ne $sidecarProcess -and -not $sidecarProcess.HasExited) {
+      Stop-Process -Id $sidecarProcess.Id -Force -ErrorAction SilentlyContinue
+      Wait-Process -Id $sidecarProcess.Id -Timeout 5 -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $tempDir) {
+      $resolvedTempBase = (Resolve-Path -LiteralPath $tempBase).Path
+      $resolvedTempDir = (Resolve-Path -LiteralPath $tempDir).Path
+      if ($resolvedTempDir.StartsWith($resolvedTempBase, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $resolvedTempDir -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
 if (-not (Test-Path -LiteralPath $releasePath)) {
   Fail "Release directory not found: $releasePath"
 }
 $releasePath = (Resolve-Path -LiteralPath $releasePath).Path
+
+if ($ExpectedSchemaVersion -le 0) {
+  $ExpectedSchemaVersion = Get-SourceSchemaVersion
+}
 
 foreach ($requiredPath in @($installerPath, $blockmapPath, $latestPath, $sidecarPath)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
@@ -92,6 +224,8 @@ foreach ($requiredPath in @($installerPath, $blockmapPath, $latestPath, $sidecar
   }
 }
 Pass "required installer, blockmap, latest.yml, and packaged sidecar are present"
+
+Invoke-PackagedSidecarSmoke $sidecarPath
 
 $latestContent = Get-Content -LiteralPath $latestPath -Raw -Encoding UTF8
 $version = Get-YamlScalar $latestContent "version"

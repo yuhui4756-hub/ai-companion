@@ -110,12 +110,12 @@ publish:
 
 ```powershell
 npm run desktop:dist
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.2 -ExpectedSchemaVersion 4
 ```
 
 如果本机到 GitHub 的大文件上传链路不稳定，可以在 GitHub Actions 手动触发 `Release desktop` workflow。该 workflow 会按指定 tag 在 Windows runner 上重新构建、核验并上传正式资产，避免把本机 `GH_TOKEN` 或候选包路径写进源码。
 
-核验脚本只读检查本地 `release-v06d/`，不会上传文件、不会调用 `gh release create/upload`，也不会读取或打印 `GH_TOKEN`。它会检查安装包、blockmap、`latest.yml`、`win-unpacked/resources/python-backend/suoyi-backend.exe` 是否存在，并核对 `latest.yml` 中的 `version`、`path/url`、`sha512`、`size` 与安装包文件是否一致；同时拒绝 `.sqlite/.db`、`.env*`、`.venv`、`backend/data` 和常见密钥形态进入候选目录。不要手改 `latest.yml` 的 `sha512`、`size` 或 `path`。
+核验脚本只读检查本地 `release-v06d/`，不会上传文件、不会调用 `gh release create/upload`，也不会读取或打印 `GH_TOKEN`。它会检查安装包、blockmap、`latest.yml`、`win-unpacked/resources/python-backend/suoyi-backend.exe` 是否存在，启动 packaged sidecar 到本机临时端口并用临时 SQLite 校验 `/health` schemaVersion 与 `/db/status` 基础字段，再核对 `latest.yml` 中的 `version`、`path/url`、`sha512`、`size` 与安装包文件是否一致；同时拒绝 `.sqlite/.db`、`.env*`、`.venv`、`backend/data` 和常见密钥形态进入候选目录。不要手改 `latest.yml` 的 `sha512`、`size` 或 `path`。
 
 ## 正式发布执行步骤
 
@@ -123,7 +123,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 
 1. 将 `package.json.version` 从 `0.1.1` 升到 `0.1.2`；如果存在 `package-lock.json`，其中根包版本也必须同步。
 2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.2.exe`、`suoyi-setup-0.1.2.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.2` 产物。
-3. 运行 `scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2` 和密钥扫描，确认候选资产不含真实 API Key、GitHub token、Cookie、扫码凭证或用户 SQLite 数据。
+3. 运行 `scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2 -ExpectedSchemaVersion 4` 和密钥扫描，确认 packaged sidecar schema、`latest.yml`、候选资产内容都正确，且不含真实 API Key、GitHub token、Cookie、扫码凭证或用户 SQLite 数据。
 4. 创建或更新 GitHub Release `v0.1.2`，上传上面三个正式资产。
 5. 上传前后核对远端 assets 名称、大小、公开下载 URL，以及远端 `latest.yml` 内容。`GH_TOKEN` 只能由总控/CI 在发布端环境变量或 Secret 使用，不得写入源码、文档、日志、`latest.yml` 或安装包。
 6. 在公开下载可读后，再更新 `README.md` 下载链接和 Release 页面链接。
@@ -171,7 +171,7 @@ Release body 不要包含真实日志、真实密钥、用户数据、GitHub tok
 2. 在同一 `appId=com.ai-companion.desktop`、同一 `userData=AppData/Roaming/AI伴侣` 下写入可识别 marker，例如新建伴侣、记忆或本地设置。
 3. 总控确认 `v0.1.2` Release 已公开，且 `latest.yml`、安装包、blockmap 都可下载。
 4. 启动 `v0.1.1`，观察更新状态从 available 到 downloaded，并由用户确认 `quitAndInstall`。
-5. 重启后确认应用版本为 `0.1.2`，packaged sidecar `/health` 返回 schemaVersion >= 2。
+5. 重启后确认应用版本为 `0.1.2`，packaged sidecar `/health` 返回当前源码期望的 schemaVersion。
 6. 确认旧 marker、Electron localStorage、`userData/backend/suoyi.sqlite` 没有被清空；首次迁移失败时仍 fallback 到 localStorage。
 7. 确认 SQLite、日志、错误提示、导出文件和 Release 元数据中没有明文 API Key/token/Cookie/扫码凭证。
 

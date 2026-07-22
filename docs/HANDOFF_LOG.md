@@ -1141,3 +1141,13 @@
 - 普通问题：`scripts/verify-release-candidate.ps1` 当前只校验 packaged sidecar 文件存在和 release 目录敏感文件/密钥形态，不会主动启动 sidecar 检查 `/health schemaVersion`。测试验收已手动发现并通过重跑 `desktop:dir`/`desktop:dist` 修正本地候选资源到 schemaVersion 4；建议后续把 packaged sidecar schema smoke 纳入发布核验脚本或交接必跑项。
 - 总控处理：普通问题不阻塞 H1，本轮先记录为后续发布核验增强项，不在总控最终确认中绕过开发/测试流程直接改脚本。
 - 可后续优化：真实远程 embedding provider 端到端、索引任务 UX、向量隐私管理、命中解释 UI、持续 RAG 质量评测基准、大知识库性能、PyInstaller `tzdata` warning 清理、正式签名/发布链路仍按后续阶段推进。
+
+### RAG-H1 发布候选核验脚本普通问题复验关闭
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：RAG-H1 后普通问题修复复验，范围为 `scripts/verify-release-candidate.ps1` 增强 packaged Python sidecar schema smoke，以及 `backend/README.md`、`docs/DESKTOP_RELEASE.md` 文档同步。
+- 验收结论：通过。上一轮普通问题“候选核验脚本只检查 packaged sidecar 文件存在、不启动校验 schema”已关闭。
+- 完成内容：脚本新增 `ExpectedSchemaVersion` 参数，未传入时可从 `backend/app/db.py` 推断；启动 `release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe` 到本机临时端口，使用 `%TEMP%/suoyi-release-sidecar-smoke-*` 临时 SQLite，校验 `/health status=ok`、`dbReady=true`、`schemaVersion >= ExpectedSchemaVersion`，并校验 `/db/status` 包含 `ftsReady` 与 `knowledgeSearchMode`。
+- 验证结果：显式 `-ExpectedSchemaVersion 4` 通过；默认 schema 推断通过；负向 `-ExpectedSchemaVersion 5` 按预期失败并清理临时目录/端口；`pytest backend/tests -q`、`npx tsc --noEmit`、`npm run build`、`npm run desktop:build` 和 `git diff --check` 均通过。
+- 数据与隐私：脚本只使用临时 SQLite，不读取或删除用户真实 localStorage、SQLite、Electron userData 或知识库资料；未上传 Release、未 bump version、未触发真实自动更新；密钥扫描未发现真实 API Key/token/Cookie/GH_TOKEN。
+- 总控处理：记录普通问题关闭；本轮只提交脚本和文档收口，不公开发布。
