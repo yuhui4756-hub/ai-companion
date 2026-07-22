@@ -1,6 +1,6 @@
 param(
   [string]$ReleaseDir = "release-v06d",
-  [string]$ExpectedVersion = "0.1.1",
+  [string]$ExpectedVersion = "0.1.3",
   [int]$ExpectedSchemaVersion = 0
 )
 
