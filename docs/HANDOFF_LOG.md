@@ -1151,3 +1151,18 @@
 - 验证结果：显式 `-ExpectedSchemaVersion 4` 通过；默认 schema 推断通过；负向 `-ExpectedSchemaVersion 5` 按预期失败并清理临时目录/端口；`pytest backend/tests -q`、`npx tsc --noEmit`、`npm run build`、`npm run desktop:build` 和 `git diff --check` 均通过。
 - 数据与隐私：脚本只使用临时 SQLite，不读取或删除用户真实 localStorage、SQLite、Electron userData 或知识库资料；未上传 Release、未 bump version、未触发真实自动更新；密钥扫描未发现真实 API Key/token/Cookie/GH_TOKEN。
 - 总控处理：记录普通问题关闭；本轮只提交脚本和文档收口，不公开发布。
+
+## 2026-07-22 v0.1.3 本地发布候选验收
+
+### v0.1.3 本地候选测试验收回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：`v0.1.3` 本地发布候选复验，不公开发布。
+- 验收结论：通过。`v0.1.3` 本地候选资产、文档口径、增强核验脚本、RAG-Q1/H1 回归、数据与密钥边界均通过复验；阻塞问题无，普通问题无。本结论不表示 `v0.1.3` 已公开发布，也不表示 RAG 高准确率最终完成或工程化 P0 全量完成。
+- 版本与文档边界：`package.json`、`package-lock.json` 和根包版本均为 `0.1.3`；README 顶部公开下载链接仍指向已发布的 `v0.1.2`，未提前切到未发布的 `v0.1.3`；`PROJECT_CONTEXT.md`、`docs/PROJECT_ORCHESTRATION.md`、`docs/DESKTOP_RELEASE.md` 已说明当前为 `v0.1.3` 本地候选准备，不上传 GitHub Release、不 push tag、不触发真实自动更新。
+- 候选资产：已生成 `release-v06d/suoyi-setup-0.1.3.exe`、`.blockmap`、`latest.yml` 和 `win-unpacked/resources/python-backend/suoyi-backend.exe`；`latest.yml` 指向 `version: 0.1.3`，sha512 与 size 经增强核验脚本确认匹配 installer。
+- 验证结果：`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4` 通过，输出包含 packaged sidecar smoke schemaVersion 4；负向 `-ExpectedSchemaVersion 5` 按预期失败并清理临时目录/端口；`pytest backend/tests -q` 通过（19 passed，1 个 Starlette/httpx deprecation warning）；RAG-Q1/H1 专项测试通过；`npx tsc --noEmit`、`npm run build`、`npm run desktop:build`、`npm run desktop:dist` 和 `git diff --check` 均通过。
+- 发布状态：`git tag --list v0.1.3`、远端 tag 查询和 `gh release view v0.1.3` 均未发现 `v0.1.3` tag 或公开 Release；`desktop:dist` 仍使用 `electron-builder --win nsis --publish never`。
+- 数据与隐私：未请求、使用、读取、打印或保存真实 API Key/token/Cookie/GH_TOKEN；未读取、删除或迁移用户真实 localStorage、Electron userData、SQLite 或知识库资料；候选核验脚本只使用 `%TEMP%/suoyi-release-sidecar-smoke-*` 临时 SQLite；候选目录未发现 `.sqlite/.sqlite3/.db/.env/.venv/backend/data`。
+- 可后续优化：真实 `v0.1.2 -> v0.1.3` 自动更新端到端、真实远程 embedding provider、PyInstaller `tzdata` warning 和代码签名仍按后续阶段处理。
+- 总控处理：记录 `v0.1.3` 本地候选验收通过；本轮只进入最终确认、提交与推送判断，不默认公开发布。

@@ -1,6 +1,6 @@
 # 所依桌面版发布说明
 
-v0.1.2 使用 Electron + electron-builder + electron-updater 作为 Windows 桌面版发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
+当前公开版本为 `v0.1.2`；源码正在准备 `v0.1.3` 本地候选资产。桌面版使用 Electron + electron-builder + electron-updater 作为 Windows 发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -14,7 +14,7 @@ npm run desktop:dist
 - `desktop:dist` 生成 Windows NSIS 安装包 `.exe`、`latest.yml` 和 blockmap。
 - `desktop:dir` 和 `desktop:dist` 会先执行 `backend:build-sidecar`，用 PyInstaller onedir 生成 `backend/dist/suoyi-backend/`，再通过 electron-builder `extraResources` 内置到 `resources/python-backend/`。
 - Web 版命令 `npm run dev`、`npm run build`、`启动AI伴侣.bat` 保留。
-- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.2.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
+- 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.3.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
 
 ## Python sidecar 候选资源
 
@@ -82,15 +82,41 @@ publish:
 - 下载完成后再次确认“重启安装”，不会无确认自动重启。
 - 更新失败只给轻提示，不展示 token、堆栈或敏感参数。
 
-公开 release artifacts 至少保留：
+当前公开 `v0.1.2` release artifacts 至少保留：
 
 - `suoyi-setup-0.1.2.exe`
 - `suoyi-setup-0.1.2.exe.blockmap`
 - `latest.yml`
 
-开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由总控确认后，在 GitHub Releases 中上传以上三个文件；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
+开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由总控确认后，在 GitHub Releases 中上传对应版本的 installer、blockmap 和 `latest.yml`；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
 
-`package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.1`，再发布 `0.1.2`，不要用同版本测试更新。
+`package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.2`，再发布 `0.1.3`，不要用同版本测试更新。
+
+## v0.1.3 本地候选准备清单
+
+`v0.1.3` 当前只做本地候选资产准备，目的是把 RAG-Q1、RAG-H1 和发布候选 sidecar schema smoke 增强打入可验收安装包。开发和测试线程不得创建、修改、删除或上传 GitHub Release，不得 push tag，不得触发真实自动更新，也不得读取或打印 `GH_TOKEN`。
+
+候选主要更新：
+
+- RAG-Q1：结构化文本/Markdown 切片、FTS5/BM25 基线、关键词 fallback、低置信和泛字段 query 不注入 prompt。
+- RAG-H1：默认关闭的远程 embedding 隐私门控、去 Key 配置、SQLite JSON 向量索引、mock/OpenAI-compatible embeddings、BM25/关键词 + 向量 hybrid retrieval、provider 失败脱敏降级。
+- 发布核验：`verify-release-candidate.ps1` 会启动 packaged `suoyi-backend.exe`，使用临时 SQLite 验证 `/health` schemaVersion 和 `/db/status` 基础字段，避免旧 sidecar 文件残留误通过。
+
+本地候选资产：
+
+- `release-v06d/suoyi-setup-0.1.3.exe`
+- `release-v06d/suoyi-setup-0.1.3.exe.blockmap`
+- `release-v06d/latest.yml`
+- `release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe`
+
+候选构建与核验：
+
+```powershell
+npm run desktop:dist
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4
+```
+
+`desktop:dist` 仍固定使用 `electron-builder --win nsis --publish never`。核验通过只说明本地候选资产可交测试验收，不代表 `v0.1.3` 已公开发布。
 
 ## v0.1.2 发布执行清单
 
@@ -117,14 +143,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 
 核验脚本只读检查本地 `release-v06d/`，不会上传文件、不会调用 `gh release create/upload`，也不会读取或打印 `GH_TOKEN`。它会检查安装包、blockmap、`latest.yml`、`win-unpacked/resources/python-backend/suoyi-backend.exe` 是否存在，启动 packaged sidecar 到本机临时端口并用临时 SQLite 校验 `/health` schemaVersion 与 `/db/status` 基础字段，再核对 `latest.yml` 中的 `version`、`path/url`、`sha512`、`size` 与安装包文件是否一致；同时拒绝 `.sqlite/.db`、`.env*`、`.venv`、`backend/data` 和常见密钥形态进入候选目录。不要手改 `latest.yml` 的 `sha512`、`size` 或 `path`。
 
-## 正式发布执行步骤
+## v0.1.3 正式发布执行步骤
 
 以下动作会改变真实发布状态，只能由总控在用户确认后执行：
 
-1. 将 `package.json.version` 从 `0.1.1` 升到 `0.1.2`；如果存在 `package-lock.json`，其中根包版本也必须同步。
-2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.2.exe`、`suoyi-setup-0.1.2.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.2` 产物。
-3. 运行 `scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2 -ExpectedSchemaVersion 4` 和密钥扫描，确认 packaged sidecar schema、`latest.yml`、候选资产内容都正确，且不含真实 API Key、GitHub token、Cookie、扫码凭证或用户 SQLite 数据。
-4. 创建或更新 GitHub Release `v0.1.2`，上传上面三个正式资产。
+1. 确认 `package.json.version` 和 `package-lock.json` 根包版本均为 `0.1.3`。
+2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.3.exe`、`suoyi-setup-0.1.3.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.3` 产物。
+3. 运行 `scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4` 和密钥扫描，确认 packaged sidecar schema、`latest.yml`、候选资产内容都正确，且不含真实 API Key、GitHub token、Cookie、扫码凭证或用户 SQLite 数据。
+4. 创建或更新 GitHub Release `v0.1.3`，上传上面三个正式资产。
 5. 上传前后核对远端 assets 名称、大小、公开下载 URL，以及远端 `latest.yml` 内容。`GH_TOKEN` 只能由总控/CI 在发布端环境变量或 Secret 使用，不得写入源码、文档、日志、`latest.yml` 或安装包。
 6. 在公开下载可读后，再更新 `README.md` 下载链接和 Release 页面链接。
 
@@ -138,27 +164,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 ## Release notes 模板
 
 ```md
-# 所依 v0.1.2
+# 所依 v0.1.3
 
-本版继续保持本地优先和 BYOK 使用方式，重点补齐桌面端工程化能力。
+本版继续保持本地优先和 BYOK 使用方式，重点升级知识库/RAG 检索质量与发布候选核验。
 
 ## 主要更新
 
-- 内置 Python/FastAPI 本地后端 sidecar，桌面安装包不再要求用户手动安装 Python 或 `.venv`。
-- 新增本机 SQLite 数据层，可把旧 `localStorage` 中的伴侣、聊天、长期记忆、风格摘要和去 Key 的模型配置复制迁移到本地数据库。
-- 新增本地知识库/RAG：用户可手动导入文本或 Markdown，相关聊天时只注入命中的“用户导入资料”片段，删除资料后不再注入。
+- 知识库切片升级为结构化文本/Markdown 解析，保留标题路径、列表、表格、问答和事实字段块。
+- 本地检索升级为 FTS5/BM25 基线，并保留关键词 fallback；低置信或只有泛字段的问题不会强行注入聊天提示词。
+- 新增默认关闭的远程 embedding / hybrid retrieval 最小闭环：用户单独开启、填写 embedding Key 并构建索引后，才会把 active 资料切片和有明确检索线索的问题发给用户配置的 embedding 服务商。
+- 发布候选核验脚本会启动 packaged Python sidecar，校验 schemaVersion 与 `/db/status` 基础字段，降低旧 sidecar 误打包风险。
 - 旧 `localStorage` 保留为 fallback；迁移失败或本地后端不可用时，聊天主流程仍可继续使用旧数据。
 
 ## 隐私与数据边界
 
 - API Key 不写入 SQLite；provider 配置只保存去 Key 字段和 `renderer-localStorage` 引用。
-- 没有云账号、没有云同步，也不会把完整数据库、完整 localStorage 快照或知识库全集上传到自有服务器。
-- 模型请求仍只发给用户自己配置的模型服务商；请求内容可能包含当前聊天上下文、长期记忆/风格摘要和本次命中的知识片段。
+- 聊天模型 Key 与 embedding Key 分开保存；embedding Key 默认只保存在当前环境本地 `localStorage`，不写入 SQLite、导出 JSON、日志或安装包。
+- 没有云账号、没有云同步，也不会把完整数据库、完整 localStorage 快照、知识库全集或向量索引上传到自有服务器。
+- 模型请求仍只发给用户自己配置的模型服务商；请求内容可能包含当前聊天上下文、长期记忆/风格摘要和本次命中的知识片段。远程向量开启后，索引时 active 知识切片会发给用户配置的 embedding 服务商，检索时符合门槛的 query 也可能发给该服务商。
 
 ## 已知边界
 
 - 当前仍未配置 Windows 代码签名证书，安装时可能出现“未知发布者”或 SmartScreen 提示。
-- 本次发布不代表工程化 P0 全量完成，后续仍可继续完善细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
+- 本次发布不代表 RAG 高准确率最终完成或工程化 P0 全量完成，后续仍可继续完善真实 provider 验收、索引任务 UX、命中解释、持续评测、细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
 ```
 
 Release body 不要包含真实日志、真实密钥、用户数据、GitHub token，也不要承诺“工程化 P0 全量完成”。
@@ -167,20 +195,20 @@ Release body 不要包含真实日志、真实密钥、用户数据、GitHub tok
 
 正式发布后再做端到端自动更新验收：
 
-1. 安装公开 `v0.1.1`。
+1. 安装公开 `v0.1.2`。
 2. 在同一 `appId=com.ai-companion.desktop`、同一 `userData=AppData/Roaming/AI伴侣` 下写入可识别 marker，例如新建伴侣、记忆或本地设置。
-3. 总控确认 `v0.1.2` Release 已公开，且 `latest.yml`、安装包、blockmap 都可下载。
-4. 启动 `v0.1.1`，观察更新状态从 available 到 downloaded，并由用户确认 `quitAndInstall`。
-5. 重启后确认应用版本为 `0.1.2`，packaged sidecar `/health` 返回当前源码期望的 schemaVersion。
+3. 总控确认 `v0.1.3` Release 已公开，且 `latest.yml`、安装包、blockmap 都可下载。
+4. 启动 `v0.1.2`，观察更新状态从 available 到 downloaded，并由用户确认 `quitAndInstall`。
+5. 重启后确认应用版本为 `0.1.3`，packaged sidecar `/health` 返回当前源码期望的 schemaVersion。
 6. 确认旧 marker、Electron localStorage、`userData/backend/suoyi.sqlite` 没有被清空；首次迁移失败时仍 fallback 到 localStorage。
 7. 确认 SQLite、日志、错误提示、导出文件和 Release 元数据中没有明文 API Key/token/Cookie/扫码凭证。
 
 ## 回滚边界
 
-- 从 `v0.1.1` 升级到 `v0.1.2` 时，同一 `appId` 和 `userData` 必须保持不变；更新只替换应用代码和随包 resources，不删除 Electron localStorage，也不删除 `userData/backend/suoyi.sqlite`。
+- 从 `v0.1.2` 升级到 `v0.1.3` 时，同一 `appId` 和 `userData` 必须保持不变；更新只替换应用代码和随包 resources，不删除 Electron localStorage，也不删除 `userData/backend/suoyi.sqlite`。
 - 首次运行新版时可把旧 localStorage snapshot 复制到 SQLite；失败时 fallback localStorage，不做破坏性迁移。
-- 若 `v0.1.2` 公开后发现严重问题，保留旧 `v0.1.1` Release 作为手动下载回退点；已经升级到高版本的客户端通常不会自动降级到 `0.1.1`，不要承诺自动降级。
-- 线上修复优先发布 `v0.1.3` hotfix；撤下、标记坏 Release、删除或替换远端资产都必须交回总控确认。
+- 若 `v0.1.3` 公开后发现严重问题，保留旧 `v0.1.2` Release 作为手动下载回退点；已经升级到高版本的客户端通常不会自动降级到 `0.1.2`，不要承诺自动降级。
+- 线上修复优先发布后续 hotfix；撤下、标记坏 Release、删除或替换远端资产都必须交回总控确认。
 
 ## 代码签名
 

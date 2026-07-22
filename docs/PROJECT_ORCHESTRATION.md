@@ -34,8 +34,8 @@
 
 - 目标：完成工程化升级方案并推进到可验证实现。
 - 当前负责人：总控线程。
-- 状态：第一轮“代理与边界先落地”切片已通过测试验收；第二轮 2A Python 本地知识库/RAG + SQLite 服务切片已提交推送；第二轮 2B 核心数据 SQLite 迁移与 Electron dev sidecar 已提交推送；第二轮 2C 发布打包与 Python sidecar 资源内置本地候选资产已提交推送；第二轮 2D 发布准备材料与本地候选资产核验已提交推送；`v0.1.2` 已通过 GitHub Actions 公开发布；RAG-Q1 结构化切片 + FTS5/BM25 基线已通过测试验收；RAG-H1 远程 embedding 隐私门控 + SQLite 向量索引 + hybrid retrieval 最小闭环已通过测试验收。当前结论不是工程化 P0 全量完成。
-- 下一步交接：优先切 H2/P1 范围，重点是真实 embedding provider 验收边界、索引任务 UX、向量隐私管理、命中解释和持续质量评测基准；如继续发布验收，再单独做 `v0.1.1 -> v0.1.2` 自动更新端到端和真实旧 userData 保留验证，涉及安装/覆盖真实本机应用时必须继续保持用户数据保护边界。
+- 状态：第一轮“代理与边界先落地”切片已通过测试验收；第二轮 2A Python 本地知识库/RAG + SQLite 服务切片已提交推送；第二轮 2B 核心数据 SQLite 迁移与 Electron dev sidecar 已提交推送；第二轮 2C 发布打包与 Python sidecar 资源内置本地候选资产已提交推送；第二轮 2D 发布准备材料与本地候选资产核验已提交推送；`v0.1.2` 已通过 GitHub Actions 公开发布；RAG-Q1 结构化切片 + FTS5/BM25 基线已通过测试验收；RAG-H1 远程 embedding 隐私门控 + SQLite 向量索引 + hybrid retrieval 最小闭环已通过测试验收；当前进入 `v0.1.3` 本地发布候选准备，不公开发布、不上传 GitHub Release、不触发真实自动更新。当前结论不是工程化 P0 全量完成。
+- 下一步交接：先将 `v0.1.3` 本地候选资产交给测试验收，确认 packaged sidecar schema v4、RAG-Q1/H1 能力、增强核验脚本和数据/密钥边界；通过后再由总控决定是否进入正式公开发布。后续 H2/P1 仍重点关注真实 embedding provider 验收边界、索引任务 UX、向量隐私管理、命中解释和持续质量评测基准。
 
 ## 专业线程
 

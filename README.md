@@ -9,6 +9,8 @@ Windows 用户可以直接下载安装包：
 - 下载地址：[suoyi-setup-0.1.2.exe](https://github.com/yuhui4756-hub/ai-companion/releases/download/v0.1.2/suoyi-setup-0.1.2.exe)
 - Release 页面：[所依 v0.1.2](https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.2)
 
+源码当前正在准备 `v0.1.3` 本地候选资产，用于验收 RAG-Q1/H1 和 packaged sidecar schema smoke 增强。`v0.1.3` 尚未公开发布，所以上面的用户下载链接仍保持在已发布的 `v0.1.2`；正式发布后再由总控更新下载链接和 Release 页面。
+
 当前安装包还没有配置代码签名，Windows 可能提示“未知发布者”。这是当前版本的已知边界，不需要关闭系统安全防护。
 
 ## 已实现功能
@@ -35,9 +37,9 @@ Windows 用户可以直接下载安装包：
 
 ## Windows 桌面版：所依
 
-v0.1.2 已发布 Windows 桌面安装包。用户可见应用名统一为“所依”，桌面窗口会隐藏系统默认 `File / Edit / View / Window / Help` 菜单栏，改用应用内自定义标题栏和最小化、最大化/还原、关闭按钮，并接入正式应用图标。
+v0.1.2 已发布 Windows 桌面安装包；源码版本已进入 v0.1.3 本地候选准备。用户可见应用名统一为“所依”，桌面窗口会隐藏系统默认 `File / Edit / View / Window / Help` 菜单栏，改用应用内自定义标题栏和最小化、最大化/还原、关闭按钮，并接入正式应用图标。
 
-桌面版更新源使用公开 GitHub Releases。客户端不内置 GitHub token；发布 token 只能用于发布端环境变量或 CI Secret，不能写入客户端或配置文件。已安装 `0.1.1` 的桌面端会在检测到 `0.1.2` 后显示更新提示，并由用户确认后下载和重启安装。
+桌面版更新源使用公开 GitHub Releases。客户端不内置 GitHub token；发布 token 只能用于发布端环境变量或 CI Secret，不能写入客户端或配置文件。已安装 `0.1.2` 的桌面端只有在总控正式发布 `0.1.3` 后才会检测到新版，并由用户确认后下载和重启安装。
 
 网页版和桌面版的数据空间不同。数据迁移需要通过“设置 -> 从网页版导入备份”显式完成，API Key 不在备份里，需要在桌面版重新填写。
 
@@ -125,7 +127,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 Invoke-RestMethod http://127.0.0.1:8765/core/status
 ```
 
-桌面开发态会尝试由 Electron 自动托管 `.venv` 里的 Python 后端：默认端口 `8765`，占用时尝试 `8766-8780`。桌面打包态会启动 `resources/python-backend/suoyi-backend.exe`。托管时 SQLite 文件会放到 Electron `userData` 下的 `backend/suoyi.sqlite`。`v0.1.2` 公开安装包已内置 Python sidecar，用户不需要单独安装 Python 后端。
+桌面开发态会尝试由 Electron 自动托管 `.venv` 里的 Python 后端：默认端口 `8765`，占用时尝试 `8766-8780`。桌面打包态会启动 `resources/python-backend/suoyi-backend.exe`。托管时 SQLite 文件会放到 Electron `userData` 下的 `backend/suoyi.sqlite`。`v0.1.2` 公开安装包已内置 Python sidecar；`v0.1.3` 候选会继续内置 schema v4 sidecar，用于验收远程向量检索和增强核验脚本。
 
 ## 怎么使用
 
@@ -179,9 +181,9 @@ http://127.0.0.1:5173/
 
 ## 当前边界
 
-- v0.1.2 已提供 Windows 桌面安装包和公开 GitHub Release，但当前没有代码签名证书。
+- v0.1.2 已提供 Windows 桌面安装包和公开 GitHub Release；v0.1.3 当前仅是本地候选准备，尚未公开发布。
 - 当前没有后端账号系统，也没有云同步；数据默认保存在本地。核心数据 SQLite 迁移是本机复制导入，失败时继续使用 `localStorage`。
-- 当前公开安装包已内置 Python sidecar、本地 SQLite 知识库和核心数据迁移能力；后续仍需继续完善细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
+- 当前公开安装包已内置 Python sidecar、本地 SQLite 知识库和核心数据迁移能力；v0.1.3 候选用于把 RAG-Q1 结构化切片/FTS5-BM25、RAG-H1 远程 embedding 隐私门控与 hybrid retrieval、发布候选 sidecar schema smoke 增强打入可验收安装包。后续仍需继续完善细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
 - 远程向量检索目前是轻量 hybrid retrieval：SQLite 保存 JSON 向量，Python 本地计算余弦相似度并与 BM25/关键词结果融合；没有引入远程向量库、云同步或重型本地向量数据库。
 - QQ 近期只做 OneBot/NapCat 本地实验骨架；QQ 官方机器人保留为长期合规备选，微信继续暂缓。
 - Release 产物由构建命令生成，不提交进源码仓库。
