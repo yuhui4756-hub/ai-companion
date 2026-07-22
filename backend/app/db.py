@@ -4,7 +4,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def get_db_path() -> Path:
@@ -144,6 +144,7 @@ def init_db(connection: sqlite3.Connection) -> None:
         """
     )
     ensure_knowledge_v3_schema(connection)
+    ensure_embedding_v4_schema(connection)
     connection.execute(
         """
         INSERT INTO app_meta(key, value, updated_at)
@@ -222,3 +223,56 @@ def ensure_knowledge_v3_schema(connection: sqlite3.Connection) -> None:
         )
     except sqlite3.Error:
         set_app_meta(connection, "fts5Available", "false")
+
+
+def ensure_embedding_v4_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS embedding_provider_configs (
+            id TEXT PRIMARY KEY,
+            provider_name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            batch_size INTEGER NOT NULL,
+            timeout_ms INTEGER NOT NULL,
+            enabled INTEGER NOT NULL,
+            api_key_ref TEXT NOT NULL,
+            last_checked_at TEXT,
+            last_status TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+            id TEXT PRIMARY KEY,
+            chunk_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            chunker_version TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            vector_json TEXT,
+            vector_norm REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_indexed_at TEXT,
+            FOREIGN KEY(chunk_id) REFERENCES knowledge_chunks(id),
+            FOREIGN KEY(source_id) REFERENCES knowledge_sources(id)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_embeddings_unique_revision
+            ON knowledge_embeddings(chunk_id, provider_id, model, dimensions, content_hash, chunker_version);
+
+        CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_lookup
+            ON knowledge_embeddings(provider_id, model, dimensions, status, chunk_id);
+
+        CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_source_status
+            ON knowledge_embeddings(source_id, status);
+        """
+    )

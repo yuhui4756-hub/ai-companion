@@ -9,6 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core import get_core_counts, get_core_status, load_core_snapshot, save_core_snapshot
 from .db import SCHEMA_VERSION, connect, get_db_path_label, init_db
+from .embeddings import (
+    check_embedding_health,
+    get_embedding_status,
+    load_embedding_config,
+    reindex_embeddings,
+    save_embedding_config,
+)
 from .knowledge import (
     DuplicateKnowledgeSourceError,
     KnowledgeSourceNotFoundError,
@@ -25,8 +32,15 @@ from .schemas import (
     CreateKnowledgeSourceRequest,
     DbStatusResponse,
     DeleteKnowledgeSourceResponse,
+    EmbeddingConfigRequest,
+    EmbeddingConfigResponse,
+    EmbeddingHealthCheckRequest,
+    EmbeddingHealthCheckResponse,
     HealthResponse,
+    KnowledgeEmbeddingStatusResponse,
     KnowledgeSourceResponse,
+    ReindexKnowledgeEmbeddingsRequest,
+    ReindexKnowledgeEmbeddingsResponse,
     SearchKnowledgeRequest,
     SearchKnowledgeResponse,
 )
@@ -90,6 +104,27 @@ def db_status(connection: sqlite3.Connection = Depends(get_connection)) -> DbSta
 @app.get("/core/status", response_model=CoreStatusResponse)
 def core_status(connection: sqlite3.Connection = Depends(get_connection)) -> CoreStatusResponse:
     return get_core_status(connection, SCHEMA_VERSION)
+
+
+@app.get("/embedding/config", response_model=EmbeddingConfigResponse)
+def get_embedding_config(connection: sqlite3.Connection = Depends(get_connection)) -> EmbeddingConfigResponse:
+    return load_embedding_config(connection)
+
+
+@app.put("/embedding/config", response_model=EmbeddingConfigResponse)
+def put_embedding_config(
+    payload: EmbeddingConfigRequest,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> EmbeddingConfigResponse:
+    return save_embedding_config(connection, payload)
+
+
+@app.post("/embedding/health/check", response_model=EmbeddingHealthCheckResponse)
+def post_embedding_health_check(
+    payload: EmbeddingHealthCheckRequest,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> EmbeddingHealthCheckResponse:
+    return check_embedding_health(connection, payload.runtimeConfig)
 
 
 @app.get("/core/snapshot", response_model=CoreSnapshot)
@@ -161,6 +196,21 @@ def delete_knowledge_source(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资料不存在。") from error
 
 
+@app.get("/knowledge/embeddings/status", response_model=KnowledgeEmbeddingStatusResponse)
+def get_knowledge_embeddings_status(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> KnowledgeEmbeddingStatusResponse:
+    return get_embedding_status(connection)
+
+
+@app.post("/knowledge/embeddings/reindex", response_model=ReindexKnowledgeEmbeddingsResponse)
+def post_knowledge_embeddings_reindex(
+    payload: ReindexKnowledgeEmbeddingsRequest,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> ReindexKnowledgeEmbeddingsResponse:
+    return reindex_embeddings(connection, payload)
+
+
 @app.post("/knowledge/search", response_model=SearchKnowledgeResponse)
 def post_knowledge_search(
     payload: SearchKnowledgeRequest,
@@ -171,4 +221,6 @@ def post_knowledge_search(
         query=payload.query,
         top_k=payload.topK,
         prompt_budget=payload.promptBudget,
+        retrieval_mode=payload.retrievalMode,
+        embedding_runtime_config=payload.embeddingRuntimeConfig,
     )

@@ -60,6 +60,7 @@ try {
     --hidden-import backend.app.main `
     --hidden-import backend.app.core `
     --hidden-import backend.app.db `
+    --hidden-import backend.app.embeddings `
     --hidden-import backend.app.knowledge `
     --hidden-import backend.app.schemas `
     --exclude-module pytest `

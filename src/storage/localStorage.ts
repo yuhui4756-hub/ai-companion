@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   CompanionOnboardingState,
   CompanionProfile,
+  EmbeddingProviderLocalConfig,
   KnowledgeChunk,
   KnowledgeSource,
   LegacyCompanionType,
@@ -32,12 +33,24 @@ const STORAGE_KEYS = {
   oneBotLocalConfig: "ai-companion:onebot-local-config:v1",
   knowledgeSources: "ai-companion:knowledge-sources:v1",
   knowledgeChunks: "ai-companion:knowledge-chunks:v1",
+  embeddingProviderConfig: "ai-companion:embedding-provider-config:v1",
 } as const;
 
 export const defaultProviderConfig: ModelProviderConfig = {
   providerName: "OpenAI 兼容接口",
   baseURL: "https://api.openai.com/v1",
   model: "",
+  apiKey: "",
+};
+
+export const defaultEmbeddingProviderConfig: EmbeddingProviderLocalConfig = {
+  providerName: "openai_compatible",
+  baseURL: "https://api.openai.com/v1",
+  model: "text-embedding-3-small",
+  dimensions: 1536,
+  batchSize: 16,
+  timeoutMs: 10000,
+  enabled: false,
   apiKey: "",
 };
 
@@ -245,6 +258,41 @@ export function loadKnowledgeChunks(): KnowledgeChunk[] {
 
 export function saveKnowledgeChunks(chunks: KnowledgeChunk[]): void {
   writeJSON(STORAGE_KEYS.knowledgeChunks, chunks);
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
+}
+
+export function loadEmbeddingProviderConfig(): EmbeddingProviderLocalConfig {
+  const stored = readJSON<Partial<EmbeddingProviderLocalConfig>>(STORAGE_KEYS.embeddingProviderConfig, {});
+  return {
+    providerName: typeof stored.providerName === "string" && stored.providerName.trim()
+      ? stored.providerName
+      : defaultEmbeddingProviderConfig.providerName,
+    baseURL: typeof stored.baseURL === "string" && stored.baseURL.trim()
+      ? stored.baseURL
+      : defaultEmbeddingProviderConfig.baseURL,
+    model: typeof stored.model === "string" && stored.model.trim()
+      ? stored.model
+      : defaultEmbeddingProviderConfig.model,
+    dimensions: clampNumber(stored.dimensions, defaultEmbeddingProviderConfig.dimensions, 1, 8192),
+    batchSize: clampNumber(stored.batchSize, defaultEmbeddingProviderConfig.batchSize, 1, 64),
+    timeoutMs: clampNumber(stored.timeoutMs, defaultEmbeddingProviderConfig.timeoutMs, 1000, 60000),
+    enabled: Boolean(stored.enabled),
+    apiKey: typeof stored.apiKey === "string" ? stored.apiKey : "",
+  };
+}
+
+export function saveEmbeddingProviderConfig(config: EmbeddingProviderLocalConfig): void {
+  writeJSON(STORAGE_KEYS.embeddingProviderConfig, {
+    ...config,
+    dimensions: clampNumber(config.dimensions, defaultEmbeddingProviderConfig.dimensions, 1, 8192),
+    batchSize: clampNumber(config.batchSize, defaultEmbeddingProviderConfig.batchSize, 1, 64),
+    timeoutMs: clampNumber(config.timeoutMs, defaultEmbeddingProviderConfig.timeoutMs, 1000, 60000),
+  });
 }
 
 export function loadPrivacyNoticeAck(): PrivacyNoticeAck {

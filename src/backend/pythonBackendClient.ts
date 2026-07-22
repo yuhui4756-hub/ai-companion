@@ -1,8 +1,11 @@
 import type {
   ChatMessage,
   CompanionProfile,
+  EmbeddingProviderLocalConfig,
+  EmbeddingProviderPublicConfig,
   KnowledgeSourceStatus,
   KnowledgeSourceType,
+  KnowledgeRetrievalMode,
   ModelProviderConfig,
   StyleSummary,
   UserMemory,
@@ -115,6 +118,48 @@ export type PythonKnowledgeSearchResult = {
   needsClarification?: boolean;
   reason?: string;
   ftsReady?: boolean;
+  embeddingUsed?: boolean;
+  embeddingReady?: boolean;
+  embeddingReason?: string;
+};
+
+export type PythonEmbeddingHealthCheckResult = {
+  ok: boolean;
+  status: string;
+  message: string;
+  dimensions?: number;
+  checkedAt: string;
+};
+
+export type PythonKnowledgeEmbeddingStatus = {
+  providerId: string;
+  providerName: string;
+  model: string;
+  dimensions: number;
+  enabled: boolean;
+  activeChunkCount: number;
+  readyCount: number;
+  pendingCount: number;
+  indexingCount: number;
+  failedCount: number;
+  staleCount: number;
+  vectorReady: boolean;
+  lastIndexedAt?: string;
+  lastError?: string;
+  lexicalReady: boolean;
+  message: string;
+};
+
+export type PythonKnowledgeEmbeddingReindexResult = {
+  ok: boolean;
+  status: string;
+  indexed: number;
+  skipped: number;
+  failed: number;
+  stale: number;
+  pending: number;
+  ready: number;
+  message: string;
 };
 
 export class PythonBackendError extends Error {
@@ -275,6 +320,8 @@ export function searchPythonKnowledge(payload: {
   query: string;
   topK?: number;
   promptBudget?: number;
+  retrievalMode?: KnowledgeRetrievalMode;
+  embeddingRuntimeConfig?: EmbeddingProviderLocalConfig;
 }): Promise<PythonKnowledgeSearchResult> {
   return requestJSON<PythonKnowledgeSearchResult>(
     "/knowledge/search",
@@ -284,8 +331,60 @@ export function searchPythonKnowledge(payload: {
         query: payload.query,
         topK: payload.topK ?? 3,
         promptBudget: payload.promptBudget ?? 1200,
+        retrievalMode: payload.retrievalMode ?? "auto",
+        embeddingRuntimeConfig: payload.embeddingRuntimeConfig,
       }),
     },
+    payload.embeddingRuntimeConfig?.enabled ? 5000 : 2500,
+  );
+}
+
+function publicEmbeddingConfig(config: EmbeddingProviderLocalConfig): Omit<EmbeddingProviderLocalConfig, "apiKey"> {
+  const { apiKey: _apiKey, ...publicConfig } = config;
+  return publicConfig;
+}
+
+export function getPythonEmbeddingConfig(): Promise<EmbeddingProviderPublicConfig> {
+  return requestJSON<EmbeddingProviderPublicConfig>("/embedding/config", { method: "GET" });
+}
+
+export function savePythonEmbeddingConfig(config: EmbeddingProviderLocalConfig): Promise<EmbeddingProviderPublicConfig> {
+  return requestJSON<EmbeddingProviderPublicConfig>(
+    "/embedding/config",
+    {
+      method: "PUT",
+      body: JSON.stringify(publicEmbeddingConfig(config)),
+    },
     2500,
+  );
+}
+
+export function checkPythonEmbeddingHealth(config: EmbeddingProviderLocalConfig): Promise<PythonEmbeddingHealthCheckResult> {
+  return requestJSON<PythonEmbeddingHealthCheckResult>(
+    "/embedding/health/check",
+    {
+      method: "POST",
+      body: JSON.stringify({ runtimeConfig: config }),
+    },
+    Math.max(config.timeoutMs + 1000, 2500),
+  );
+}
+
+export function getPythonKnowledgeEmbeddingStatus(): Promise<PythonKnowledgeEmbeddingStatus> {
+  return requestJSON<PythonKnowledgeEmbeddingStatus>("/knowledge/embeddings/status", { method: "GET" });
+}
+
+export function reindexPythonKnowledgeEmbeddings(payload: {
+  sourceId?: string;
+  force?: boolean;
+  embeddingRuntimeConfig: EmbeddingProviderLocalConfig;
+}): Promise<PythonKnowledgeEmbeddingReindexResult> {
+  return requestJSON<PythonKnowledgeEmbeddingReindexResult>(
+    "/knowledge/embeddings/reindex",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    Math.max(payload.embeddingRuntimeConfig.timeoutMs * 4, 10000),
   );
 }

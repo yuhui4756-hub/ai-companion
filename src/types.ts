@@ -230,6 +230,27 @@ export type KnowledgeHit = {
   score: number;
 };
 
+export type KnowledgeRetrievalMode = "auto" | "keyword" | "hybrid";
+
+export type EmbeddingProviderLocalConfig = {
+  providerName: string;
+  baseURL: string;
+  model: string;
+  dimensions: number;
+  batchSize: number;
+  timeoutMs: number;
+  enabled: boolean;
+  apiKey: string;
+};
+
+export type EmbeddingProviderPublicConfig = Omit<EmbeddingProviderLocalConfig, "apiKey"> & {
+  id: string;
+  apiKeyRef: "renderer-localStorage";
+  lastCheckedAt?: string;
+  lastStatus?: string;
+  lastError?: string;
+};
+
 export type ModelProviderConfig = {
   providerName: string;
   baseURL: string;

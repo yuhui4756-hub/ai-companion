@@ -63,6 +63,8 @@ class SearchKnowledgeRequest(BaseModel):
     query: str = Field(default="", max_length=4_000)
     topK: int = Field(default=3, ge=1, le=10)
     promptBudget: int = Field(default=1200, ge=100, le=4000)
+    retrievalMode: str = Field(default="auto", pattern="^(auto|keyword|hybrid)$")
+    embeddingRuntimeConfig: Optional["EmbeddingRuntimeConfig"] = None
 
 
 class SearchKnowledgeResponse(BaseModel):
@@ -73,6 +75,9 @@ class SearchKnowledgeResponse(BaseModel):
     needsClarification: bool = False
     reason: str = ""
     ftsReady: bool = False
+    embeddingUsed: bool = False
+    embeddingReady: bool = False
+    embeddingReason: str = ""
 
 
 class DeleteKnowledgeSourceResponse(BaseModel):
@@ -128,4 +133,89 @@ class CoreStatusResponse(BaseModel):
     latestMigrationHash: Optional[str] = None
     latestMigrationStatus: Optional[str] = None
     counts: CoreCounts
+    message: str
+
+
+class EmbeddingRuntimeConfig(BaseModel):
+    providerName: str = Field(default="openai_compatible", max_length=80)
+    baseURL: str = Field(default="https://api.openai.com/v1", max_length=500)
+    model: str = Field(default="text-embedding-3-small", max_length=160)
+    dimensions: int = Field(default=1536, ge=1, le=8192)
+    batchSize: int = Field(default=16, ge=1, le=64)
+    timeoutMs: int = Field(default=10_000, ge=1_000, le=60_000)
+    enabled: bool = False
+    apiKey: Optional[str] = Field(default=None, max_length=4_000)
+
+
+class EmbeddingConfigRequest(BaseModel):
+    providerName: str = Field(default="openai_compatible", max_length=80)
+    baseURL: str = Field(default="https://api.openai.com/v1", max_length=500)
+    model: str = Field(default="text-embedding-3-small", max_length=160)
+    dimensions: int = Field(default=1536, ge=1, le=8192)
+    batchSize: int = Field(default=16, ge=1, le=64)
+    timeoutMs: int = Field(default=10_000, ge=1_000, le=60_000)
+    enabled: bool = False
+
+
+class EmbeddingConfigResponse(BaseModel):
+    id: str = "default"
+    providerName: str
+    baseURL: str
+    model: str
+    dimensions: int
+    batchSize: int
+    timeoutMs: int
+    enabled: bool
+    apiKeyRef: str = "renderer-localStorage"
+    lastCheckedAt: Optional[str] = None
+    lastStatus: Optional[str] = None
+    lastError: Optional[str] = None
+
+
+class EmbeddingHealthCheckRequest(BaseModel):
+    runtimeConfig: EmbeddingRuntimeConfig
+
+
+class EmbeddingHealthCheckResponse(BaseModel):
+    ok: bool
+    status: str
+    message: str
+    dimensions: Optional[int] = None
+    checkedAt: str
+
+
+class KnowledgeEmbeddingStatusResponse(BaseModel):
+    providerId: str = "default"
+    providerName: str
+    model: str
+    dimensions: int
+    enabled: bool
+    activeChunkCount: int
+    readyCount: int
+    pendingCount: int
+    indexingCount: int
+    failedCount: int
+    staleCount: int
+    vectorReady: bool
+    lastIndexedAt: Optional[str] = None
+    lastError: Optional[str] = None
+    lexicalReady: bool = True
+    message: str
+
+
+class ReindexKnowledgeEmbeddingsRequest(BaseModel):
+    sourceId: Optional[str] = None
+    force: bool = False
+    embeddingRuntimeConfig: EmbeddingRuntimeConfig
+
+
+class ReindexKnowledgeEmbeddingsResponse(BaseModel):
+    ok: bool
+    status: str
+    indexed: int
+    skipped: int
+    failed: int
+    stale: int
+    pending: int
+    ready: int
     message: str

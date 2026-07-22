@@ -9,8 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from .embeddings import VectorCandidate, search_embedding_candidates
 from .schemas import (
     DeleteKnowledgeSourceResponse,
+    EmbeddingRuntimeConfig,
     KnowledgeHitResponse,
     KnowledgeSourceResponse,
     KnowledgeSourceStatus,
@@ -22,6 +24,9 @@ DEFAULT_CHUNK_SIZE = 820
 DEFAULT_CHUNK_OVERLAP = 80
 CHUNKER_VERSION = "v2-structured"
 INJECTION_SCORE_THRESHOLD = 10.0
+VECTOR_ONLY_SCORE_BASE = 12.0
+VECTOR_SCORE_WEIGHT = 22.0
+HYBRID_RRF_K = 60.0
 PROMPT_HEADER = "用户导入资料（仅供当前回复参考，不等同于长期记忆或模型事实）："
 ENGLISH_STOPWORDS = {
     "a",
@@ -171,6 +176,7 @@ class QueryAnalysis:
 @dataclass(frozen=True)
 class SearchCandidate:
     hit: KnowledgeHitResponse
+    chunk_id: str
     source_id: str
     score: float
 
@@ -982,6 +988,7 @@ def build_candidates(rows: list[sqlite3.Row], analysis: QueryAnalysis, *, from_f
         seen_hashes.add(content_hash)
         candidates.append(
             SearchCandidate(
+                chunk_id=row["chunk_id"],
                 source_id=row["source_id"],
                 score=score,
                 hit=KnowledgeHitResponse(
@@ -998,6 +1005,90 @@ def build_candidates(rows: list[sqlite3.Row], analysis: QueryAnalysis, *, from_f
         )
     candidates.sort(key=lambda candidate: (-candidate.score, candidate.hit.sourceTitle, candidate.hit.chunkIndex))
     return candidates
+
+
+def vector_candidate_to_search_candidate(candidate: VectorCandidate, analysis: QueryAnalysis) -> SearchCandidate | None:
+    if analysis.field_terms and analysis.mentioned_source_ids and not content_has_field(candidate.content, analysis.field_terms):
+        return None
+
+    score = VECTOR_ONLY_SCORE_BASE + candidate.cosine * VECTOR_SCORE_WEIGHT
+    scores = {"vector": round(candidate.cosine, 3)}
+    if candidate.source_id in analysis.mentioned_source_ids:
+        score += 8
+        scores["source"] = 8.0
+    if analysis.field_terms and content_has_field(candidate.content, analysis.field_terms):
+        field_score = 4 * len(analysis.field_terms)
+        score += field_score
+        scores["field"] = float(field_score)
+
+    return SearchCandidate(
+        chunk_id=candidate.chunk_id,
+        source_id=candidate.source_id,
+        score=score,
+        hit=KnowledgeHitResponse(
+            sourceId=candidate.source_id,
+            sourceTitle=candidate.source_title,
+            chunkIndex=candidate.chunk_index,
+            content=candidate.content,
+            score=round(score, 3),
+            headingPath=candidate.heading_path,
+            chunkType=candidate.chunk_type,
+            scores=scores,
+        ),
+    )
+
+
+def with_candidate_score(candidate: SearchCandidate, score: float, scores: dict[str, float]) -> SearchCandidate:
+    hit = candidate.hit.model_copy(
+        update={
+            "score": round(score, 3),
+            "scores": {key: round(value, 3) for key, value in scores.items() if value > 0},
+        }
+    )
+    return SearchCandidate(
+        hit=hit,
+        chunk_id=candidate.chunk_id,
+        source_id=candidate.source_id,
+        score=score,
+    )
+
+
+def fuse_candidates(
+    lexical_candidates: list[SearchCandidate],
+    vector_candidates: list[SearchCandidate],
+) -> list[SearchCandidate]:
+    combined: dict[str, SearchCandidate] = {}
+    scores_by_chunk: dict[str, dict[str, float]] = {}
+    rank_bonus_by_chunk: dict[str, float] = {}
+
+    for index, candidate in enumerate(lexical_candidates, start=1):
+        combined[candidate.chunk_id] = candidate
+        scores_by_chunk[candidate.chunk_id] = dict(candidate.hit.scores)
+        rank_bonus_by_chunk[candidate.chunk_id] = rank_bonus_by_chunk.get(candidate.chunk_id, 0.0) + 1 / (HYBRID_RRF_K + index)
+
+    for index, candidate in enumerate(vector_candidates, start=1):
+        current = combined.get(candidate.chunk_id)
+        rank_bonus_by_chunk[candidate.chunk_id] = rank_bonus_by_chunk.get(candidate.chunk_id, 0.0) + 1.35 / (HYBRID_RRF_K + index)
+        if current is None:
+            combined[candidate.chunk_id] = candidate
+            scores_by_chunk[candidate.chunk_id] = dict(candidate.hit.scores)
+            continue
+
+        merged_scores = {**scores_by_chunk[candidate.chunk_id], **candidate.hit.scores}
+        vector_boost = candidate.hit.scores.get("vector", 0) * VECTOR_SCORE_WEIGHT
+        score = max(current.score, candidate.score) + vector_boost * 0.35
+        combined[candidate.chunk_id] = with_candidate_score(current, score, merged_scores)
+        scores_by_chunk[candidate.chunk_id] = merged_scores
+
+    fused: list[SearchCandidate] = []
+    for chunk_id, candidate in combined.items():
+        rrf_score = rank_bonus_by_chunk.get(chunk_id, 0.0)
+        total = candidate.score + rrf_score * 100
+        scores = {**scores_by_chunk.get(chunk_id, {}), "rrf": rrf_score}
+        fused.append(with_candidate_score(candidate, total, scores))
+
+    fused.sort(key=lambda candidate: (-candidate.score, candidate.hit.sourceTitle, candidate.hit.chunkIndex))
+    return fused
 
 
 def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysis, top_k: int) -> tuple[list[KnowledgeHitResponse], bool, bool, str]:
@@ -1033,6 +1124,8 @@ def search_knowledge(
     query: str,
     top_k: int = 3,
     prompt_budget: int = 1200,
+    retrieval_mode: str = "auto",
+    embedding_runtime_config: EmbeddingRuntimeConfig | None = None,
 ) -> SearchKnowledgeResponse:
     active_sources = get_active_sources(connection)
     analysis = analyze_query(query, active_sources)
@@ -1048,6 +1141,9 @@ def search_knowledge(
             needsClarification=True,
             reason=analysis.reason,
             ftsReady=fts_available,
+            embeddingUsed=False,
+            embeddingReady=False,
+            embeddingReason="query-needs-specific-source-or-entity",
         )
 
     rows: list[sqlite3.Row]
@@ -1064,6 +1160,34 @@ def search_knowledge(
             mode = "keyword-fallback"
 
     candidates = build_candidates(rows, analysis, from_fts=from_fts)
+    embedding_used = False
+    embedding_ready = False
+    embedding_reason = ""
+    if retrieval_mode in {"auto", "hybrid"}:
+        vector_result = search_embedding_candidates(
+            connection,
+            query=query,
+            runtime_config=embedding_runtime_config,
+            source_ids=analysis.mentioned_source_ids,
+            limit=50,
+        )
+        embedding_used = vector_result.used
+        embedding_ready = vector_result.ready
+        embedding_reason = vector_result.reason
+        vector_candidates = [
+            candidate
+            for candidate in (
+                vector_candidate_to_search_candidate(vector_candidate, analysis)
+                for vector_candidate in vector_result.candidates
+            )
+            if candidate is not None
+        ]
+        if vector_candidates:
+            candidates = fuse_candidates(candidates, vector_candidates)
+            mode = "hybrid"
+        elif vector_result.used:
+            mode = "hybrid-fallback"
+
     selected_hits, should_inject, needs_clarification, reason = select_prompt_hits(candidates, analysis, top_k)
     return SearchKnowledgeResponse(
         hits=selected_hits,
@@ -1073,6 +1197,9 @@ def search_knowledge(
         needsClarification=needs_clarification,
         reason=reason,
         ftsReady=fts_available,
+        embeddingUsed=embedding_used,
+        embeddingReady=embedding_ready,
+        embeddingReason=embedding_reason,
     )
 
 

@@ -1125,3 +1125,19 @@
 - 普通问题：`backend/README.md` 的桌面候选资产 smoke 片段仍停在 `0.1.1` 候选包表述，与当前 `0.1.2` 公开状态不一致。
 - 总控处理：已同步 `backend/README.md` 为 `0.1.2` 公开后的发布核验口径；该文档问题关闭。
 - 可后续优化：远程 embedding/hybrid fusion、召回解释 UI、持续 RAG 质量评测基准、PyInstaller `tzdata` warning 清理、正式签名/自动更新端到端验收仍按后续阶段推进。
+
+## 2026-07-22 RAG-H1 远程 embedding 与 hybrid retrieval 验收
+
+### RAG-H1 测试验收回收
+
+- 来源线程：AI伴侣-工程化-测试验收（`019f7ebc-f28f-7f62-b6c5-fdf2339e25b1`）。
+- 当前阶段：RAG-H1 远程 embedding 隐私门控、SQLite 向量索引与 hybrid retrieval 最小闭环验收；本轮不是 RAG 高准确率最终完成，也不是工程化 P0 全量完成。
+- 验收结论：通过，阻塞问题无。
+- 完成内容：schema v4 非破坏性升级、embedding 配置去 Key 保存、mock/OpenAI-compatible provider 边界、索引状态与重建、hybrid retrieval、Q1 泛字段门槛、软删除不召回、前端远程向量默认关闭与 Key 隔离、聊天发送前按条件携带 embedding runtime config。
+- 修改文件：`README.md`、`backend/README.md`、`backend/app/db.py`、`backend/app/embeddings.py`、`backend/app/knowledge.py`、`backend/app/main.py`、`backend/app/schemas.py`、`backend/tests/test_embeddings.py`、`backend/tests/test_knowledge.py`、`scripts/build-python-sidecar.ps1`、`src/App.tsx`、`src/backend/pythonBackendClient.ts`、`src/storage/localStorage.ts`、`src/styles.css`、`src/types.ts`。
+- 验证结果：`./.venv/Scripts/python -m pytest backend/tests -q` 通过（19 passed，1 个 Starlette/httpx deprecation warning）；`npx tsc --noEmit`、`npm run build`、`npm run desktop:build`、`npm run backend:build-sidecar`、`npm run desktop:dir`、`npm run desktop:dist` 均通过；`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.2` 通过；packaged sidecar smoke 返回 schemaVersion 4；密钥/隐私扫描未发现真实 API Key/token/Cookie/GH_TOKEN；构建产物未混入 SQLite、`.env`、`.venv`、`backend/data` 或测试 fixture。
+- H1 API 与 UI 验收：默认 embedding 关闭时搜索不使用 embedding；保存 config 不返回也不入库 apiKey；mock reindex 幂等；vectorReady 后 hybrid 语义改写命中目标资料；泛字段仍不调用 embedding 且不注入；provider 报错时脱敏并降级本地检索；模型/维度变化会标记 stale 并可重建；软删除 source 后 vector 不召回；知识面板展示 schema v4、远程向量状态、单独 Key、测试连接、重建索引和索引计数。
+- 数据与隐私：验收只使用临时 SQLite、mock/fake provider 和假 Key 字符串；未请求、未使用、未记录真实 API Key/token/Cookie/GH_TOKEN；未读取、导出、删除用户真实 localStorage、SQLite、Electron userData 或知识库资料。Python 后端仍不接收聊天模型 API Key；embedding Key 仅作为 runtime config 由 renderer 在用户开启并具备 Key 时传入，不写入 SQLite、导出、候选资产或日志。
+- 普通问题：`scripts/verify-release-candidate.ps1` 当前只校验 packaged sidecar 文件存在和 release 目录敏感文件/密钥形态，不会主动启动 sidecar 检查 `/health schemaVersion`。测试验收已手动发现并通过重跑 `desktop:dir`/`desktop:dist` 修正本地候选资源到 schemaVersion 4；建议后续把 packaged sidecar schema smoke 纳入发布核验脚本或交接必跑项。
+- 总控处理：普通问题不阻塞 H1，本轮先记录为后续发布核验增强项，不在总控最终确认中绕过开发/测试流程直接改脚本。
+- 可后续优化：真实远程 embedding provider 端到端、索引任务 UX、向量隐私管理、命中解释 UI、持续 RAG 质量评测基准、大知识库性能、PyInstaller `tzdata` warning 清理、正式签名/发布链路仍按后续阶段推进。

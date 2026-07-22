@@ -20,6 +20,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Upload,
@@ -58,28 +59,37 @@ import {
   memoryScopeLabels,
 } from "./memory/memory";
 import {
+  checkPythonEmbeddingHealth,
   deletePythonKnowledgeSource,
+  getPythonEmbeddingConfig,
   getPythonBackendBaseURL,
   getPythonBackendHealth,
   getPythonCoreSnapshot,
   getPythonCoreStatus,
+  getPythonKnowledgeEmbeddingStatus,
   importLocalStorageCoreSnapshot,
   importPythonKnowledgeSource,
   listPythonKnowledgeSources,
   PythonBackendError,
+  reindexPythonKnowledgeEmbeddings,
   savePythonCoreSnapshot,
+  savePythonEmbeddingConfig,
   searchPythonKnowledge,
   setPythonBackendBaseURL,
   type CoreSnapshot,
   type CoreStatus,
   type PythonBackendHealth,
+  type PythonKnowledgeEmbeddingStatus,
   type PythonKnowledgeSource,
 } from "./backend/pythonBackendClient";
 import { ModelProviderError } from "./model-provider/openai";
 import { appRepository } from "./storage/appRepository";
 import {
+  defaultEmbeddingProviderConfig,
   defaultProviderConfig,
   buildLocalDataExport,
+  loadEmbeddingProviderConfig,
+  saveEmbeddingProviderConfig,
 } from "./storage/localStorage";
 import { buildStyleSummaryFromInput, createEmptyStyleSummary, getBoundStyleSummary } from "./style-reference/styleSummary";
 import { getDesktopBridge, type DesktopInfo, type DesktopUpdatePayload } from "./desktop/desktopBridge";
@@ -98,6 +108,7 @@ import type {
   AppView,
   ChatMessage,
   CompanionProfile,
+  EmbeddingProviderLocalConfig,
   KnowledgeSourceType,
   LocalDataExport,
   MemoryCandidate,
@@ -298,6 +309,8 @@ export default function App() {
   const [memories, setMemories] = useState<UserMemory[]>(() => appRepository.loadMemories());
   const [styleSummaries, setStyleSummaries] = useState<StyleSummary[]>(() => appRepository.loadStyleSummaries());
   const [knowledgeSources, setKnowledgeSources] = useState<PythonKnowledgeSource[]>([]);
+  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingProviderLocalConfig>(() => loadEmbeddingProviderConfig());
+  const [knowledgeEmbeddingStatus, setKnowledgeEmbeddingStatus] = useState<PythonKnowledgeEmbeddingStatus | null>(null);
   const [knowledgeBackendHealth, setKnowledgeBackendHealth] = useState<PythonBackendHealth>({
     available: false,
     status: "checking",
@@ -316,6 +329,8 @@ export default function App() {
   const [knowledgeActionMessage, setKnowledgeActionMessage] = useState("");
   const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
   const [isKnowledgeImporting, setIsKnowledgeImporting] = useState(false);
+  const [isEmbeddingChecking, setIsEmbeddingChecking] = useState(false);
+  const [isEmbeddingIndexing, setIsEmbeddingIndexing] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -382,6 +397,9 @@ export default function App() {
   });
   const visibleKnowledgeSources = [...knowledgeSources].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const activeKnowledgeSourceCount = knowledgeSources.filter((source) => source.status === "active").length;
+  const hasEmbeddingApiKey = embeddingConfig.apiKey.trim().length > 0;
+  const canUseRemoteEmbedding =
+    knowledgeBackendHealth.available && embeddingConfig.enabled && hasEmbeddingApiKey && Boolean(knowledgeEmbeddingStatus?.vectorReady);
   const mainCompanions = companions.filter((companion) => isRomanceCompanion(companion) || companion.showInMainList);
   const hiddenCompanions = companions.filter((companion) => !mainCompanions.some((profile) => profile.id === companion.id));
   const hasUserCreatedCompanion = useMemo(
@@ -675,6 +693,39 @@ export default function App() {
     }
   }
 
+  function mergeEmbeddingConfigFromBackend(remoteConfig: Awaited<ReturnType<typeof getPythonEmbeddingConfig>>) {
+    setEmbeddingConfig((current) => {
+      const next = {
+        ...current,
+        providerName: remoteConfig.providerName || current.providerName,
+        baseURL: remoteConfig.baseURL || current.baseURL,
+        model: remoteConfig.model || current.model,
+        dimensions: remoteConfig.dimensions || current.dimensions,
+        batchSize: remoteConfig.batchSize || current.batchSize,
+        timeoutMs: remoteConfig.timeoutMs || current.timeoutMs,
+        enabled: remoteConfig.enabled,
+        apiKey: current.apiKey,
+      };
+      saveEmbeddingProviderConfig(next);
+      return next;
+    });
+  }
+
+  async function refreshEmbeddingMetadata(force = false) {
+    if (!force && !knowledgeBackendHealth.available) return;
+    try {
+      const [remoteConfig, status] = await Promise.all([
+        getPythonEmbeddingConfig(),
+        getPythonKnowledgeEmbeddingStatus(),
+      ]);
+      mergeEmbeddingConfigFromBackend(remoteConfig);
+      setKnowledgeEmbeddingStatus(status);
+    } catch (error) {
+      setKnowledgeEmbeddingStatus(null);
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    }
+  }
+
   async function refreshKnowledgeBackend(showActionMessage = false) {
     setKnowledgeBackendHealth({
       available: false,
@@ -687,6 +738,7 @@ export default function App() {
     setKnowledgeBackendHealth(health);
     if (!health.available) {
       setKnowledgeSources([]);
+      setKnowledgeEmbeddingStatus(null);
       setCoreStatus({
         mode: "localStorage",
         message: "本地 Python 后端未连接，核心数据继续使用 localStorage。",
@@ -698,6 +750,7 @@ export default function App() {
       return;
     }
     await loadKnowledgeSourcesFromBackend();
+    await refreshEmbeddingMetadata(true);
     if (coreStorageModeRef.current === "sqlite") {
       await refreshCoreStorageStatusOnly();
     } else {
@@ -715,6 +768,95 @@ export default function App() {
       ...current,
       [field]: value,
     }));
+  }
+
+  function updateEmbeddingConfig<K extends keyof EmbeddingProviderLocalConfig>(
+    field: K,
+    value: EmbeddingProviderLocalConfig[K],
+  ) {
+    setKnowledgeActionMessage("");
+    setEmbeddingConfig((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function persistEmbeddingConfigLocally(config = embeddingConfig) {
+    saveEmbeddingProviderConfig(config);
+  }
+
+  async function handleSaveEmbeddingConfig() {
+    persistEmbeddingConfigLocally();
+    if (!knowledgeBackendHealth.available) {
+      setKnowledgeActionMessage("远程向量配置已保存在当前环境本地；本地 Python 后端未连接，暂未写入 SQLite 非密配置。");
+      return;
+    }
+    try {
+      const remoteConfig = await savePythonEmbeddingConfig(embeddingConfig);
+      mergeEmbeddingConfigFromBackend(remoteConfig);
+      await refreshEmbeddingMetadata();
+      setKnowledgeActionMessage(
+        embeddingConfig.enabled
+          ? "远程向量非密配置已保存。API Key 只保存在当前环境本地，不写入 SQLite。"
+          : "已关闭远程向量检索，聊天会继续使用本地 BM25/关键词。",
+      );
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    }
+  }
+
+  async function handleCheckEmbeddingHealth() {
+    persistEmbeddingConfigLocally();
+    if (!knowledgeBackendHealth.available) {
+      setKnowledgeActionMessage("本地 Python 后端未连接，不能检查 embedding provider。");
+      return;
+    }
+    setIsEmbeddingChecking(true);
+    try {
+      const result = await checkPythonEmbeddingHealth(embeddingConfig);
+      await refreshEmbeddingMetadata();
+      setKnowledgeActionMessage(
+        result.ok
+          ? `embedding provider 检查通过，返回 ${result.dimensions ?? embeddingConfig.dimensions} 维向量。`
+          : result.message,
+      );
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    } finally {
+      setIsEmbeddingChecking(false);
+    }
+  }
+
+  async function handleReindexEmbeddings(force = true) {
+    persistEmbeddingConfigLocally();
+    if (!knowledgeBackendHealth.available) {
+      setKnowledgeActionMessage("本地 Python 后端未连接，不能构建向量索引。");
+      return;
+    }
+    if (!embeddingConfig.enabled) {
+      setKnowledgeActionMessage("请先开启远程向量检索，再构建索引。关闭时不会发送资料切片。");
+      return;
+    }
+    if (!hasEmbeddingApiKey) {
+      setKnowledgeActionMessage("缺少 embedding API Key，未发送资料切片。");
+      return;
+    }
+    setIsEmbeddingIndexing(true);
+    try {
+      await savePythonEmbeddingConfig(embeddingConfig);
+      const result = await reindexPythonKnowledgeEmbeddings({
+        force,
+        embeddingRuntimeConfig: embeddingConfig,
+      });
+      await refreshEmbeddingMetadata();
+      setKnowledgeActionMessage(
+        `${result.message} indexed=${result.indexed} skipped=${result.skipped} failed=${result.failed} pending=${result.pending} ready=${result.ready}`,
+      );
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    } finally {
+      setIsEmbeddingIndexing(false);
+    }
   }
 
   function applyProviderPreset(preset: (typeof providerPresets)[number]) {
@@ -995,10 +1137,13 @@ export default function App() {
     let knowledgeContext = "";
     if (knowledgeBackendHealth.available) {
       try {
+        const embeddingRuntimeConfig = canUseRemoteEmbedding ? embeddingConfig : undefined;
         const searchResult = await searchPythonKnowledge({
           query: userInput,
           topK: 3,
           promptBudget: 1200,
+          retrievalMode: embeddingRuntimeConfig ? "auto" : "keyword",
+          embeddingRuntimeConfig,
         });
         knowledgeContext = searchResult.promptContext;
       } catch (searchError) {
@@ -1116,6 +1261,7 @@ export default function App() {
       });
       setKnowledgeActionMessage(`已写入 SQLite：《${source.title}》，生成 ${source.chunkCount} 个本地切片。`);
       await loadKnowledgeSourcesFromBackend();
+      await refreshEmbeddingMetadata();
     } catch (error) {
       setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
     } finally {
@@ -1131,6 +1277,7 @@ export default function App() {
         source ? `已软删除《${source.title}》。它的片段不会再进入后续聊天。` : "已软删除资料，它的片段不会再进入后续聊天。",
       );
       await loadKnowledgeSourcesFromBackend();
+      await refreshEmbeddingMetadata();
     } catch (error) {
       setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
     }
@@ -1826,7 +1973,7 @@ export default function App() {
                 <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地；知识库资料由本机 Python 后端保存到 SQLite。</p>
                 <p>聊天时桌面版会优先经本机 Electron 代理请求模型服务商；Web 调试版没有桌面代理时仍可能由浏览器直连。项目不内置、不上传、不代管你的真实 Key。</p>
                 <p>本地 Python 后端可用时，会把伴侣、聊天、长期记忆、风格摘要和去 Key 的模型配置复制到本机 SQLite；旧 localStorage 不会自动清空，后端不可用时会回退。</p>
-                <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。</p>
+                <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。远程向量检索默认关闭，开启后资料切片和检索问题才会发给你单独配置的 embedding 服务商。</p>
                 <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
                 <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
               </div>
@@ -2806,6 +2953,7 @@ export default function App() {
                       <p>
                         资料会保存到本机 Python 后端管理的 SQLite。聊天时只有检索命中的相关片段会随本次模型请求发给你配置的模型服务商；删除资料后不再注入。
                       </p>
+                      <p>远程向量检索默认关闭；开启并构建索引时，资料切片和检索问题会发给你单独配置的 embedding 服务商。</p>
                       <p>{coreStorageStatus.message}</p>
                     </div>
                   </div>
@@ -2817,6 +2965,136 @@ export default function App() {
                       </p>
                     </div>
                   )}
+                  <div className="embedding-settings">
+                    <div className="section-title compact-title">
+                      <SlidersHorizontal size={18} />
+                      <h3>远程向量检索</h3>
+                    </div>
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={embeddingConfig.enabled}
+                        onChange={(event) => updateEmbeddingConfig("enabled", event.target.checked)}
+                      />
+                      <span>开启后可与本地 BM25/关键词融合检索</span>
+                    </label>
+                    <div className="embedding-status-grid">
+                      <div className="embedding-status-line">
+                        <strong>本地 BM25/关键词</strong>
+                        <span>{knowledgeBackendHealth.available ? "可用" : "等待后端连接"}</span>
+                      </div>
+                      <div className={knowledgeEmbeddingStatus?.vectorReady ? "embedding-status-line ready" : "embedding-status-line"}>
+                        <strong>远程向量</strong>
+                        <span>
+                          {!embeddingConfig.enabled
+                            ? "未开启"
+                            : knowledgeEmbeddingStatus?.message ?? "等待状态刷新"}
+                        </span>
+                      </div>
+                      {knowledgeEmbeddingStatus && (
+                        <div className="embedding-counts">
+                          <span>{knowledgeEmbeddingStatus.activeChunkCount} 个 active 切片</span>
+                          <span>{knowledgeEmbeddingStatus.readyCount} ready</span>
+                          <span>{knowledgeEmbeddingStatus.pendingCount} pending</span>
+                          <span>{knowledgeEmbeddingStatus.staleCount} stale</span>
+                          <span>{knowledgeEmbeddingStatus.failedCount} failed</span>
+                        </div>
+                      )}
+                      {knowledgeEmbeddingStatus?.lastError && (
+                        <p className="muted danger-text">{knowledgeEmbeddingStatus.lastError}</p>
+                      )}
+                    </div>
+                    <div className="embedding-config-grid">
+                      <label>
+                        Base URL
+                        <input
+                          value={embeddingConfig.baseURL}
+                          onChange={(event) => updateEmbeddingConfig("baseURL", event.target.value)}
+                          placeholder={defaultEmbeddingProviderConfig.baseURL}
+                        />
+                      </label>
+                      <label>
+                        Model
+                        <input
+                          value={embeddingConfig.model}
+                          onChange={(event) => updateEmbeddingConfig("model", event.target.value)}
+                          placeholder={defaultEmbeddingProviderConfig.model}
+                        />
+                      </label>
+                      <label>
+                        Dimensions
+                        <input
+                          type="number"
+                          min={1}
+                          max={8192}
+                          value={embeddingConfig.dimensions}
+                          onChange={(event) => updateEmbeddingConfig("dimensions", Number(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Batch
+                        <input
+                          type="number"
+                          min={1}
+                          max={64}
+                          value={embeddingConfig.batchSize}
+                          onChange={(event) => updateEmbeddingConfig("batchSize", Number(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Timeout ms
+                        <input
+                          type="number"
+                          min={1000}
+                          max={60000}
+                          value={embeddingConfig.timeoutMs}
+                          onChange={(event) => updateEmbeddingConfig("timeoutMs", Number(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Embedding Key
+                        <input
+                          type="password"
+                          value={embeddingConfig.apiKey}
+                          onChange={(event) => updateEmbeddingConfig("apiKey", event.target.value)}
+                          placeholder="只保存在当前环境本地，不写入 SQLite/导出"
+                        />
+                      </label>
+                    </div>
+                    <div className="embedding-actions">
+                      <button className="ghost-button" type="button" onClick={handleSaveEmbeddingConfig}>
+                        <Save size={16} />
+                        保存配置
+                      </button>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={handleCheckEmbeddingHealth}
+                        disabled={!knowledgeBackendHealth.available || !embeddingConfig.enabled || !hasEmbeddingApiKey || isEmbeddingChecking}
+                      >
+                        <RefreshCw size={16} />
+                        {isEmbeddingChecking ? "检查中" : "测试连接"}
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => handleReindexEmbeddings(true)}
+                        disabled={
+                          !knowledgeBackendHealth.available ||
+                          !embeddingConfig.enabled ||
+                          !hasEmbeddingApiKey ||
+                          isEmbeddingIndexing ||
+                          activeKnowledgeSourceCount === 0
+                        }
+                      >
+                        <Brain size={16} />
+                        {isEmbeddingIndexing ? "索引中" : "重建索引"}
+                      </button>
+                    </div>
+                    <p className="embedding-privacy-note">
+                      关闭时聊天只用本机检索；开启后，构建索引会发送 active 资料切片，聊天检索可能发送当前问题。Embedding Key 与聊天模型 Key 分开保存。
+                    </p>
+                  </div>
                   <form className="knowledge-form" onSubmit={handleImportKnowledge}>
                     <label>
                       标题
@@ -2876,7 +3154,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="memory-note">
-                    <p>检索先使用关键词和轻量模糊匹配，向量检索留到后续版本。</p>
+                    <p>默认使用本地 FTS5/BM25 与关键词门槛；远程向量只在明确开启、配置 Key 且索引 ready 后参与融合检索。</p>
                     <p>知识片段会标记为“用户导入资料”，不会混入长期记忆，也不代表模型事实。</p>
                   </div>
                   {visibleKnowledgeSources.length === 0 ? (
