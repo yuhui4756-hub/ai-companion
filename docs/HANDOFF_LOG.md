@@ -1166,3 +1166,20 @@
 - 数据与隐私：未请求、使用、读取、打印或保存真实 API Key/token/Cookie/GH_TOKEN；未读取、删除或迁移用户真实 localStorage、Electron userData、SQLite 或知识库资料；候选核验脚本只使用 `%TEMP%/suoyi-release-sidecar-smoke-*` 临时 SQLite；候选目录未发现 `.sqlite/.sqlite3/.db/.env/.venv/backend/data`。
 - 可后续优化：真实 `v0.1.2 -> v0.1.3` 自动更新端到端、真实远程 embedding provider、PyInstaller `tzdata` warning 和代码签名仍按后续阶段处理。
 - 总控处理：记录 `v0.1.3` 本地候选验收通过；本轮只进入最终确认、提交与推送判断，不默认公开发布。
+
+## 2026-07-22 v0.1.3 正式发布执行
+
+### 发布执行与远端验收
+
+- 来源：用户确认可以进入 `v0.1.3` 正式公开发布。
+- 发布流程修正：提交并推送 `c691546 Update v0.1.3 release workflow defaults` 到 `origin/main`，把 `.github/workflows/release-desktop.yml` 默认 tag/version 更新为 `v0.1.3`/`0.1.3`，并把 `ExpectedSchemaVersion=4` 传给候选核验脚本；同时把 `scripts/verify-release-candidate.ps1` 的默认 `ExpectedVersion` 更新为 `0.1.3`。
+- 发布 tag：已创建并推送 `v0.1.3`，指向提交 `c69154665794178c27596b185456da398f4eea45`。
+- 本地发布前验证：`scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4 -FailOnOtherInstallers` 通过，输出包含 packaged sidecar smoke schemaVersion 4；`npx tsc --noEmit` 和 `npm run build` 通过；`git diff --check` 无 whitespace error，仅 Windows CRLF 提示。
+- 发布 workflow：手动触发 GitHub Actions workflow `Release desktop`，run `29919861498` 成功完成，步骤包含 checkout tag、安装依赖、后端测试、`npm run desktop:dist`、候选核验和资产上传发布。
+- 公开 Release：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.3` 已发布，状态为非 draft、非 prerelease，发布时间 `2026-07-22T12:33:32Z`。
+- 远端资产：`latest.yml` 339 bytes；`suoyi-setup-0.1.3.exe` 106398903 bytes；`suoyi-setup-0.1.3.exe.blockmap` 110203 bytes，三者均为 uploaded 状态。
+- 远端下载验收：公开 `latest.yml` 可下载，内容指向 `version: 0.1.3`、`path/url: suoyi-setup-0.1.3.exe`、`size: 106398903`；公开 installer URL 的 HEAD 最终返回 200，`Content-Length=106398903`。
+- Release notes：已把 GitHub Release 正文从默认短句更新为正式说明，覆盖主要更新、隐私与数据边界、真实自动更新端到端未验收、真实 embedding provider 质量未验收、未签名和非 P0/RAG 最终完成边界。
+- 文档收口：已同步 `README.md` 下载链接和 Release 页面到 `v0.1.3`，并更新 `PROJECT_CONTEXT.md`、`docs/PROJECT_ORCHESTRATION.md`、`docs/DESKTOP_RELEASE.md` 的当前阶段状态。
+- 数据与隐私：未请求、未使用、未记录真实 API Key/token/Cookie/扫码凭证；发布 token 仅由本机 GitHub CLI/Actions 环境使用，未写入源码、文档、日志、`latest.yml` 或安装包；未读取、删除或迁移用户真实 localStorage、Electron userData、SQLite 或知识库资料。
+- 未完成边界：未在用户真实安装环境执行 `v0.1.2 -> v0.1.3` 自动更新端到端，因为这会安装/覆盖本机应用并触碰真实 userData；若继续验收，应单独以可回退、可识别 marker 的方式执行。真实远程 embedding provider 端到端、代码签名和 PyInstaller `tzdata` warning 清理仍按后续阶段处理。

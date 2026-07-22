@@ -1,6 +1,6 @@
 # 所依桌面版发布说明
 
-当前公开版本为 `v0.1.2`；源码正在准备 `v0.1.3` 本地候选资产。桌面版使用 Electron + electron-builder + electron-updater 作为 Windows 发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
+当前公开版本为 `v0.1.3`。桌面版使用 Electron + electron-builder + electron-updater 作为 Windows 发布骨架。用户可见应用名、窗口标题、安装包名、快捷方式和开始菜单名称统一为“所依”。
 
 ## 构建命令
 
@@ -16,7 +16,7 @@ npm run desktop:dist
 - Web 版命令 `npm run dev`、`npm run build`、`启动AI伴侣.bat` 保留。
 - 本轮输出目录为 `release-v06d/`，安装包名形如 `suoyi-setup-0.1.3.exe`；应用窗口、快捷方式和开始菜单显示名仍为“所依”。
 
-## Python sidecar 候选资源
+## Python sidecar 打包资源
 
 2C 采用 PyInstaller onedir 方案打包 Python/FastAPI 后端：
 
@@ -26,9 +26,9 @@ npm run desktop:dist
 - 输出目录：`backend/dist/suoyi-backend/`，其中应包含 `suoyi-backend.exe`。
 - 打包位置：`release-v06d/win-unpacked/resources/python-backend/`。
 
-候选包运行时，Electron 会从 `process.resourcesPath/python-backend/suoyi-backend.exe` 启动后端，并传入 `--host 127.0.0.1 --port <port>`。默认尝试 `8765`，占用时尝试 `8766-8780`。SQLite 文件放在 Electron `userData/backend/suoyi.sqlite`，不放在安装目录或 `resources` 目录。
+打包版运行时，Electron 会从 `process.resourcesPath/python-backend/suoyi-backend.exe` 启动后端，并传入 `--host 127.0.0.1 --port <port>`。默认尝试 `8765`，占用时尝试 `8766-8780`。SQLite 文件放在 Electron `userData/backend/suoyi.sqlite`，不放在安装目录或 `resources` 目录。
 
-如果 exe 缺失、启动失败或健康检查失败，主窗口仍应打开；renderer 会显示本地后端不可用，并继续使用 legacy `localStorage` fallback。packaged 候选资源不得包含 `.venv`、`backend/data`、`.sqlite/.db`、`.env*`、测试 fixture 或真实用户数据。
+如果 exe 缺失、启动失败或健康检查失败，主窗口仍应打开；renderer 会显示本地后端不可用，并继续使用 legacy `localStorage` fallback。packaged 资源不得包含 `.venv`、`backend/data`、`.sqlite/.db`、`.env*`、测试 fixture 或真实用户数据。
 
 ## 图标
 
@@ -82,41 +82,41 @@ publish:
 - 下载完成后再次确认“重启安装”，不会无确认自动重启。
 - 更新失败只给轻提示，不展示 token、堆栈或敏感参数。
 
-当前公开 `v0.1.2` release artifacts 至少保留：
+当前公开 `v0.1.3` release artifacts 至少保留：
 
-- `suoyi-setup-0.1.2.exe`
-- `suoyi-setup-0.1.2.exe.blockmap`
+- `suoyi-setup-0.1.3.exe`
+- `suoyi-setup-0.1.3.exe.blockmap`
 - `latest.yml`
 
 开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由总控确认后，在 GitHub Releases 中上传对应版本的 installer、blockmap 和 `latest.yml`；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
 
 `package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.2`，再发布 `0.1.3`，不要用同版本测试更新。
 
-## v0.1.3 本地候选准备清单
+## v0.1.3 发布清单
 
-`v0.1.3` 当前只做本地候选资产准备，目的是把 RAG-Q1、RAG-H1 和发布候选 sidecar schema smoke 增强打入可验收安装包。开发和测试线程不得创建、修改、删除或上传 GitHub Release，不得 push tag，不得触发真实自动更新，也不得读取或打印 `GH_TOKEN`。
+`v0.1.3` 已完成本地候选验收，并通过 GitHub Actions workflow `Release desktop` 公开发布。发布目的是把 RAG-Q1、RAG-H1 和发布候选 sidecar schema smoke 增强打入 Windows 安装包。后续仍不得在未确认的情况下触发真实自动更新安装、读取或打印 `GH_TOKEN`，也不得删除用户真实本地数据。
 
-候选主要更新：
+主要更新：
 
 - RAG-Q1：结构化文本/Markdown 切片、FTS5/BM25 基线、关键词 fallback、低置信和泛字段 query 不注入 prompt。
 - RAG-H1：默认关闭的远程 embedding 隐私门控、去 Key 配置、SQLite JSON 向量索引、mock/OpenAI-compatible embeddings、BM25/关键词 + 向量 hybrid retrieval、provider 失败脱敏降级。
 - 发布核验：`verify-release-candidate.ps1` 会启动 packaged `suoyi-backend.exe`，使用临时 SQLite 验证 `/health` schemaVersion 和 `/db/status` 基础字段，避免旧 sidecar 文件残留误通过。
 
-本地候选资产：
+公开发布资产：
 
 - `release-v06d/suoyi-setup-0.1.3.exe`
 - `release-v06d/suoyi-setup-0.1.3.exe.blockmap`
 - `release-v06d/latest.yml`
 - `release-v06d/win-unpacked/resources/python-backend/suoyi-backend.exe`
 
-候选构建与核验：
+构建与核验：
 
 ```powershell
 npm run desktop:dist
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4
 ```
 
-`desktop:dist` 仍固定使用 `electron-builder --win nsis --publish never`。核验通过只说明本地候选资产可交测试验收，不代表 `v0.1.3` 已公开发布。
+`desktop:dist` 仍固定使用 `electron-builder --win nsis --publish never`。正式公开发布由 GitHub Actions 在 Windows runner 上重新构建、核验并上传 Release 资产，避免本机大文件上传和本机 `GH_TOKEN` 泄漏风险。
 
 ## v0.1.2 发布执行清单
 
@@ -145,7 +145,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 
 ## v0.1.3 正式发布执行步骤
 
-以下动作会改变真实发布状态，只能由总控在用户确认后执行：
+以下动作会改变真实发布状态，只能由总控在用户确认后执行。本轮已按这些步骤完成 `v0.1.3` 公开发布：
 
 1. 确认 `package.json.version` 和 `package-lock.json` 根包版本均为 `0.1.3`。
 2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.3.exe`、`suoyi-setup-0.1.3.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.3` 产物。
@@ -160,6 +160,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 - 发布方式：本机大文件上传多次被远端断开后，改用 GitHub Actions 手动 workflow `Release desktop` 在 Windows runner 上重新构建、核验、上传并发布。
 - 远端资产：`latest.yml`、`suoyi-setup-0.1.2.exe`、`suoyi-setup-0.1.2.exe.blockmap` 均已上传；远端 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.2` installer。
 - 发布后仍未做安装覆盖式自动更新验收；如要验证 `v0.1.1 -> v0.1.2`，需要在保护用户数据的前提下单独执行。
+
+## v0.1.3 公开发布结果
+
+- Release 页面：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.3`。
+- 发布方式：创建并推送 tag `v0.1.3` 后，手动触发 GitHub Actions workflow `Release desktop`，run `29919861498` 在 Windows runner 上重新构建、运行后端测试、执行候选核验并上传发布。
+- 远端资产：`latest.yml`、`suoyi-setup-0.1.3.exe`、`suoyi-setup-0.1.3.exe.blockmap` 均已上传；远端 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.3` installer。
+- 发布后仍未做安装覆盖式自动更新验收；如要验证 `v0.1.2 -> v0.1.3`，需要在保护用户数据的前提下单独执行。
 
 ## Release notes 模板
 
