@@ -2431,7 +2431,7 @@ export default function App() {
               </div>
               <div className="warning-box">
                 <p>
-                  真实模型验收时，请只在这个网页的设置页输入自己的 Key；测试记录、截图说明和交接报告都不要记录完整 Key。
+                  真实模型验收时，请只在这个网页的设置页输入自己的 Key；测试记录、截图说明和公开报告都不要记录完整 Key。
                   页面状态只显示脱敏 Key，导出文件也会移除 Key。
                 </p>
               </div>

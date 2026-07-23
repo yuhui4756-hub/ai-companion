@@ -88,7 +88,7 @@ publish:
 - `suoyi-setup-0.1.3.exe.blockmap`
 - `latest.yml`
 
-开发线程只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由总控确认后，在 GitHub Releases 中上传对应版本的 installer、blockmap 和 `latest.yml`；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
+开发者只负责生成本地 Release 候选资产，不直接创建或上传 GitHub Release。当前 `desktop:dist` 固定使用 `--publish never`，避免候选构建误上传。正式公开发布由发布负责人确认后，在 GitHub Releases 中上传对应版本的 installer、blockmap 和 `latest.yml`；不要手改 `latest.yml` 的 `sha512`、`size`、`path`。
 
 `package.json.version` 决定应用版本和构建产物版本。测试自动更新必须使用不同版本号，例如先装 `0.1.2`，再发布 `0.1.3`，不要用同版本测试更新。
 
@@ -120,7 +120,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 
 ## v0.1.2 发布执行清单
 
-用户已确认进入 `v0.1.2` 正式发布执行。本轮仍保持构建与上传分离：`desktop:dist` 只生成本地候选资产，不自动发布；总控核验后手动创建 GitHub Release 并上传正式资产。
+`v0.1.2` 正式发布执行已完成。发布流程保持构建与上传分离：`desktop:dist` 只生成本地候选资产，不自动发布；发布负责人核验后手动创建 GitHub Release 并上传正式资产。
 
 建议正式发布目标：
 
@@ -145,13 +145,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 
 ## v0.1.3 正式发布执行步骤
 
-以下动作会改变真实发布状态，只能由总控在用户确认后执行。本轮已按这些步骤完成 `v0.1.3` 公开发布：
+以下动作会改变真实发布状态，只能由发布负责人在明确确认后执行。`v0.1.3` 公开发布已按这些步骤完成：
 
 1. 确认 `package.json.version` 和 `package-lock.json` 根包版本均为 `0.1.3`。
 2. 重新运行 `npm run desktop:dist`，确认产物文件名变为 `suoyi-setup-0.1.3.exe`、`suoyi-setup-0.1.3.exe.blockmap`，且 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.3` 产物。
 3. 运行 `scripts/verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4` 和密钥扫描，确认 packaged sidecar schema、`latest.yml`、候选资产内容都正确，且不含真实 API Key、GitHub token、Cookie、扫码凭证或用户 SQLite 数据。
 4. 创建或更新 GitHub Release `v0.1.3`，上传上面三个正式资产。
-5. 上传前后核对远端 assets 名称、大小、公开下载 URL，以及远端 `latest.yml` 内容。`GH_TOKEN` 只能由总控/CI 在发布端环境变量或 Secret 使用，不得写入源码、文档、日志、`latest.yml` 或安装包。
+5. 上传前后核对远端 assets 名称、大小、公开下载 URL，以及远端 `latest.yml` 内容。`GH_TOKEN` 只能由发布端环境变量或 CI Secret 使用，不得写入源码、文档、日志、`latest.yml` 或安装包。
 6. 在公开下载可读后，再更新 `README.md` 下载链接和 Release 页面链接。
 
 ## v0.1.2 公开发布结果
@@ -214,7 +214,7 @@ Release body 不要包含真实日志、真实密钥、用户数据、GitHub tok
 
 1. 安装公开 `v0.1.2`。
 2. 在同一 `appId=com.ai-companion.desktop`、同一 `userData=AppData/Roaming/AI伴侣` 下写入可识别 marker，例如新建伴侣、记忆或本地设置。
-3. 总控确认 `v0.1.3` Release 已公开，且 `latest.yml`、安装包、blockmap 都可下载。
+3. 发布负责人确认 `v0.1.3` Release 已公开，且 `latest.yml`、安装包、blockmap 都可下载。
 4. 启动 `v0.1.2`，观察更新状态从 available 到 downloaded，并由用户确认 `quitAndInstall`。
 5. 重启后确认应用版本为 `0.1.3`，packaged sidecar `/health` 返回当前源码期望的 schemaVersion。
 6. 确认旧 marker、Electron localStorage、`userData/backend/suoyi.sqlite` 没有被清空；首次迁移失败时仍 fallback 到 localStorage。
@@ -225,7 +225,7 @@ Release body 不要包含真实日志、真实密钥、用户数据、GitHub tok
 - 从 `v0.1.2` 升级到 `v0.1.3` 时，同一 `appId` 和 `userData` 必须保持不变；更新只替换应用代码和随包 resources，不删除 Electron localStorage，也不删除 `userData/backend/suoyi.sqlite`。
 - 首次运行新版时可把旧 localStorage snapshot 复制到 SQLite；失败时 fallback localStorage，不做破坏性迁移。
 - 若 `v0.1.3` 公开后发现严重问题，保留旧 `v0.1.2` Release 作为手动下载回退点；已经升级到高版本的客户端通常不会自动降级到 `0.1.2`，不要承诺自动降级。
-- 线上修复优先发布后续 hotfix；撤下、标记坏 Release、删除或替换远端资产都必须交回总控确认。
+- 线上修复优先发布后续 hotfix；撤下、标记坏 Release、删除或替换远端资产都必须由发布负责人明确确认。
 
 ## 代码签名
 

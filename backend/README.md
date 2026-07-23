@@ -46,7 +46,7 @@ npm run desktop:dist
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candidate.ps1 -ExpectedVersion 0.1.3 -ExpectedSchemaVersion 4
 ```
 
-`v0.1.2` 已公开发布；`v0.1.3` 当前只准备本地候选资产，正式公开发布仍需总控确认。准备新版本时需先同步 bump `package.json` 和 `package-lock.json`，再重新构建并用对应版本号核验。该核验脚本只读检查本地 `release-v06d/`，会用临时 SQLite 启动 packaged `suoyi-backend.exe` 检查 `/health` schema 和 `/db/status` 基础字段，不会上传 GitHub Release，也不会读取或打印 `GH_TOKEN`。
+`v0.1.3` 已公开发布；准备后续新版本时需先同步 bump `package.json` 和 `package-lock.json`，再重新构建并用对应版本号核验。该核验脚本只读检查本地 `release-v06d/`，会用临时 SQLite 启动 packaged `suoyi-backend.exe` 检查 `/health` schema 和 `/db/status` 基础字段，不会上传 GitHub Release，也不会读取或打印 `GH_TOKEN`。
 
 ## API 范围
 

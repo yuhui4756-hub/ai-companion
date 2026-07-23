@@ -51,7 +51,7 @@ npm run desktop:dir
 npm run desktop:dist
 ```
 
-`desktop:dir` 和 `desktop:dist` 会先用 PyInstaller 构建本地 Python sidecar，并把 `backend/dist/suoyi-backend/` 内置到桌面候选资产的 `resources/python-backend/` 下。`desktop:dist` 仍固定 `--publish never`，避免构建时误上传；公开发布由总控核验后手动上传到 GitHub Release。
+`desktop:dir` 和 `desktop:dist` 会先用 PyInstaller 构建本地 Python sidecar，并把 `backend/dist/suoyi-backend/` 内置到桌面候选资产的 `resources/python-backend/` 下。`desktop:dist` 仍固定 `--publish never`，避免构建时误上传；公开发布由维护者核验后手动上传到 GitHub Release。
 
 ## 从源码本地启动
 
@@ -136,7 +136,7 @@ Invoke-RestMethod http://127.0.0.1:8765/core/status
 3. 点顶部“设置”，可以先点 DeepSeek 或 OpenAI 兼容预设，再填写你的 OpenAI 兼容接口：
    - `baseURL` 示例：`https://api.openai.com/v1` 或 `https://api.deepseek.com`
    - `model` 示例：填写你的服务商支持的模型名，预设值可以手动修改
-   - `apiKey`：填写你自己的 Key，只保存在当前浏览器本地，不要发给测试线程或写进文档
+   - `apiKey`：填写你自己的 Key，只保存在当前浏览器本地，不要发到 issue、截图、聊天记录或文档里
 4. 关闭弹窗回到聊天，直接开始对话。
 5. 点顶部“伴侣”可以继续编辑当前恋爱伴侣，也可以从更多/兼容入口访问旧类型伴侣，或把旧伴侣恢复显示到主列表。
 6. 点顶部“记忆”查看、编辑、新增或删除全局/专属长期记忆。

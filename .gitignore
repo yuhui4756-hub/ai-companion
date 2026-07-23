@@ -21,6 +21,16 @@ coverage/
 !.env.example
 .venv/
 
+# Local Codex collaboration notes
+AGENTS.md
+PROJECT_CONTEXT.md
+THREAD_REGISTRY.md
+TASK_HANDOFF.md
+docs/COLLABORATION_FLOW.md
+docs/HANDOFF_LOG.md
+docs/PROJECT_ORCHESTRATION.md
+docs/THREAD_PROMPTS.md
+
 # Python caches
 __pycache__/
 *.py[cod]
