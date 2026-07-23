@@ -166,7 +166,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 - Release 页面：`https://github.com/yuhui4756-hub/ai-companion/releases/tag/v0.1.3`。
 - 发布方式：创建并推送 tag `v0.1.3` 后，手动触发 GitHub Actions workflow `Release desktop`，run `29919861498` 在 Windows runner 上重新构建、运行后端测试、执行候选核验并上传发布。
 - 远端资产：`latest.yml`、`suoyi-setup-0.1.3.exe`、`suoyi-setup-0.1.3.exe.blockmap` 均已上传；远端 `latest.yml` 的 `version/path/sha512/size` 指向 `0.1.3` installer。
-- 发布后仍未做安装覆盖式自动更新验收；如要验证 `v0.1.2 -> v0.1.3`，需要在保护用户数据的前提下单独执行。
+- 发布后已补做 `v0.1.2 -> v0.1.3` 自动更新端到端验收；结果见下方记录。
+
+## v0.1.2 -> v0.1.3 自动更新验收结果
+
+- 使用公开 `v0.1.2` installer，SHA256 与 GitHub Release asset digest 一致。
+- 为避免覆盖默认安装位置，先安装到 ignored 的临时目录 `output/auto-update-v012-to-v013-20260723-134253/install2/suoyi`。
+- 旧版应用通过 GitHub Releases 检测到 `0.1.3`，下载远端 `latest.yml` 和 `suoyi-setup-0.1.3.exe`；下载缓存位于临时 `LOCALAPPDATA` 下的 `suoyi-updater/pending/`。
+- 用户确认安装器后，注册表显示 `所依 0.1.3`，安装目录 exe 文件更新为 `0.1.3` 发布资产。
+- 更新后启动应用，桌面桥返回 `version=0.1.3`；更新前写入的测试 localStorage marker 保留；随包 Python sidecar 可用，`/health` 返回 `schemaVersion=4`。
+- 验收后已通过桌面桥删除活动 localStorage 测试 marker，卸载临时测试安装，确认无测试进程、无 8765-8780/9333-9338 监听、无测试安装注册表残留。Chromium LevelDB 历史日志可能仍残留测试 marker 字符串直至后续压缩；该 marker 不含用户隐私。
+- 验收 caveat：当前应用内部 `userDataPath` 固定为 `AppData/Roaming/AI伴侣`，不是由临时 `APPDATA` 环境变量隔离；本次只写入并清理可识别测试 marker，未读取、导出、删除真实伴侣、聊天、知识库或 API Key 数据。后续若频繁做升级验收，建议增加显式测试 profile/userData 覆盖入口。
 
 ## Release notes 模板
 
@@ -200,7 +210,7 @@ Release body 不要包含真实日志、真实密钥、用户数据、GitHub tok
 
 ## 自动更新验收步骤
 
-正式发布后再做端到端自动更新验收：
+端到端自动更新验收可按以下步骤复跑：
 
 1. 安装公开 `v0.1.2`。
 2. 在同一 `appId=com.ai-companion.desktop`、同一 `userData=AppData/Roaming/AI伴侣` 下写入可识别 marker，例如新建伴侣、记忆或本地设置。

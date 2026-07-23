@@ -1183,3 +1183,19 @@
 - 文档收口：已同步 `README.md` 下载链接和 Release 页面到 `v0.1.3`，并更新 `PROJECT_CONTEXT.md`、`docs/PROJECT_ORCHESTRATION.md`、`docs/DESKTOP_RELEASE.md` 的当前阶段状态。
 - 数据与隐私：未请求、未使用、未记录真实 API Key/token/Cookie/扫码凭证；发布 token 仅由本机 GitHub CLI/Actions 环境使用，未写入源码、文档、日志、`latest.yml` 或安装包；未读取、删除或迁移用户真实 localStorage、Electron userData、SQLite 或知识库资料。
 - 未完成边界：未在用户真实安装环境执行 `v0.1.2 -> v0.1.3` 自动更新端到端，因为这会安装/覆盖本机应用并触碰真实 userData；若继续验收，应单独以可回退、可识别 marker 的方式执行。真实远程 embedding provider 端到端、代码签名和 PyInstaller `tzdata` warning 清理仍按后续阶段处理。
+
+## 2026-07-23 v0.1.2 -> v0.1.3 自动更新端到端验收
+
+### 发布后自动更新复验
+
+- 来源：用户确认可以继续做自动更新验收，并在安装器 UI 出现时确认更新。
+- 验收结论：通过。公开 `v0.1.2` 安装包可通过 GitHub Releases 检测到 `v0.1.3`，下载更新，用户确认安装后升级到 `0.1.3`；更新前写入的测试 localStorage marker 保留，随包 Python sidecar 升级后可用且 schemaVersion 为 4。
+- 测试安装与下载：从 GitHub Release 下载公开 `suoyi-setup-0.1.2.exe` 到 ignored 目录 `output/auto-update-v012-to-v013-20260723-134253/downloads/`；文件大小 `106352683`，SHA256 `36CB9723FDBA5E6A391FC5AD7D26392B7DB2426BB1D7361039281678BE6E52E1`，与 v0.1.2 Release asset digest 一致。
+- 初始安装：为避免覆盖默认安装位置，使用静默安装把 `0.1.2` 安装到 `output/auto-update-v012-to-v013-20260723-134253/install2/suoyi`；注册表初始显示 `所依 0.1.2`。
+- 更新链路：通过桌面桥调用 `updates.check`、`updates.download`、`updates.quitAndInstall`；日志显示访问 GitHub `releases.atom`、`releases/tag/v0.1.3` 和 `releases/download/v0.1.3/latest.yml`，下载 `suoyi-setup-0.1.3.exe` 到临时 `LOCALAPPDATA/suoyi-updater/pending/`；用户确认安装器后，注册表更新为 `所依 0.1.3`。
+- 升级后验证：启动更新后的 `install2/suoyi/所依.exe`，桌面桥返回 `version=0.1.3`、`isPackaged=true`；测试 marker `suoyi:auto-update-marker-stablepath=auto-update-v012-to-v013-stablepath-20260723-134253` 可读回；`pythonBackend.getStatus()` 为 available，`/health` 返回 `status=ok`、`dbReady=true`、`schemaVersion=4`。
+- 清理：通过桌面桥删除活动 localStorage 测试 marker；使用临时安装目录内的 uninstaller 静默卸载测试安装；最终无测试安装注册表记录、无测试路径进程、无 8765-8780 或 9333-9338 监听；工作区仍干净。Chromium LevelDB 历史日志可能仍残留测试 marker 字符串直至后续压缩；该 marker 不含用户隐私。
+- Release notes：已同步 GitHub Release `v0.1.3` 正文，把自动更新边界从“尚未验收”更新为“`v0.1.2 -> v0.1.3` 自动更新端到端已通过”。
+- 数据与隐私：本轮未请求、未使用、未记录真实 API Key/token/Cookie/GH_TOKEN；未读取、导出、删除真实伴侣、聊天、知识库或 API Key 数据。
+- 重要 caveat：尝试通过临时 `APPDATA/LOCALAPPDATA` 隔离时，Electron 应用内部 `userDataPath` 仍固定到 `C:\Users\muyun\AppData\Roaming\AI伴侣`；本轮只写入并清理可识别测试 marker。后续若要重复做安装/升级验收，建议增加显式测试 profile/userData 覆盖入口，减少触碰真实 userData 的风险。
+- 可后续优化：`quitAndInstall(false, true)` 会启动交互式 NSIS 安装器，需要用户确认；后续可评估是否在合适边界下改为静默安装体验。代码签名、SmartScreen 文案、真实远程 embedding provider 质量验收仍按后续阶段处理。
