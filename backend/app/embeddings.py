@@ -31,6 +31,8 @@ DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_DIMENSIONS = 1536
 DEFAULT_BATCH_SIZE = 16
 DEFAULT_TIMEOUT_MS = 10_000
+OLLAMA_PROVIDER_NAME = "ollama"
+OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434/api"
 VECTOR_MIN_COSINE = 0.42
 
 SECRET_PATTERN = re.compile(
@@ -240,6 +242,8 @@ def update_config_status(connection: sqlite3.Connection, *, status: str, error: 
 
 
 def has_runtime_key(runtime_config: EmbeddingRuntimeConfig) -> bool:
+    if is_ollama_provider(runtime_config):
+        return True
     return bool((runtime_config.apiKey or "").strip())
 
 
@@ -250,6 +254,26 @@ def runtime_to_config(runtime_config: EmbeddingRuntimeConfig) -> EmbeddingConfig
 def embedding_endpoint(base_url: str) -> str:
     normalized = normalize_base_url(base_url)
     return normalized if normalized.endswith("/embeddings") else f"{normalized}/embeddings"
+
+
+def is_ollama_provider(config: EmbeddingRuntimeConfig | EmbeddingConfigRequest) -> bool:
+    return normalize_provider_name(config.providerName) == OLLAMA_PROVIDER_NAME
+
+
+def is_local_ollama_base_url(base_url: str) -> bool:
+    parsed = urllib.parse.urlparse(normalize_base_url(base_url))
+    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def ollama_embed_endpoint(base_url: str) -> str:
+    normalized = normalize_base_url(base_url or OLLAMA_DEFAULT_BASE_URL)
+    if not is_local_ollama_base_url(normalized):
+        raise EmbeddingProviderError("embedding-provider-local-url-required")
+    if normalized.endswith("/api/embed"):
+        return normalized
+    if normalized.endswith("/api"):
+        return f"{normalized}/embed"
+    return f"{normalized}/api/embed"
 
 
 def vector_norm(vector: list[float]) -> float:
@@ -356,11 +380,51 @@ def create_openai_compatible_embeddings(texts: list[str], runtime_config: Embedd
         raise EmbeddingProviderError("embedding-provider-invalid-response") from error
 
 
+def create_ollama_embeddings(texts: list[str], runtime_config: EmbeddingRuntimeConfig) -> list[list[float]]:
+    payload: dict[str, Any] = {
+        "model": runtime_config.model,
+        "input": texts,
+    }
+    request = urllib.request.Request(
+        ollama_embed_endpoint(runtime_config.baseURL),
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=runtime_config.timeoutMs / 1000) as response:
+            raw = response.read(2_000_000)
+    except urllib.error.HTTPError as error:
+        raise EmbeddingProviderError(f"embedding-provider-http-{error.code}") from error
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise EmbeddingProviderError("embedding-provider-network-error") from error
+    except Exception as error:
+        raise EmbeddingProviderError("embedding-provider-request-failed") from error
+
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        rows = data.get("embeddings")
+        if not isinstance(rows, list) and len(texts) == 1 and isinstance(data.get("embedding"), list):
+            rows = [data["embedding"]]
+        if not isinstance(rows, list) or len(rows) != len(texts):
+            raise ValueError("embedding-count-mismatch")
+        vectors: list[list[float]] = []
+        for embedding in rows:
+            if not isinstance(embedding, list) or not embedding:
+                raise ValueError("embedding-empty")
+            vectors.append([float(value) for value in embedding])
+        return vectors
+    except Exception as error:
+        raise EmbeddingProviderError("embedding-provider-invalid-response") from error
+
+
 def create_embeddings(texts: list[str], runtime_config: EmbeddingRuntimeConfig) -> list[list[float]]:
     provider_name = normalize_provider_name(runtime_config.providerName)
     if provider_name == "mock":
         time.sleep(0)
         return create_mock_embeddings(texts, runtime_config.dimensions)
+    if provider_name == OLLAMA_PROVIDER_NAME:
+        return create_ollama_embeddings(texts, runtime_config)
     return create_openai_compatible_embeddings(texts, runtime_config)
 
 
@@ -624,13 +688,13 @@ def get_embedding_status(connection: sqlite3.Connection) -> KnowledgeEmbeddingSt
     ).fetchone()
     vector_ready = bool(config.enabled and ready_count > 0)
     if not config.enabled:
-        message = "远程向量检索未开启，本地 BM25/关键词检索仍可用。"
+        message = "向量检索未开启，本地 BM25/关键词检索仍可用。"
     elif vector_ready and pending_count == 0 and failed_count == 0 and stale_count == 0:
-        message = "远程向量索引已就绪。"
+        message = "向量索引已就绪。"
     elif ready_count > 0:
-        message = "远程向量索引部分就绪，可继续重建未完成或过期切片。"
+        message = "向量索引部分就绪，可继续重建未完成或过期切片。"
     else:
-        message = "远程向量检索已开启，但还没有可用索引。"
+        message = "向量检索已开启，但还没有可用索引。"
 
     return KnowledgeEmbeddingStatusResponse(
         providerId=EMBEDDING_CONFIG_ID,
@@ -661,7 +725,7 @@ def check_embedding_health(connection: sqlite3.Connection, runtime_config: Embed
         return EmbeddingHealthCheckResponse(
             ok=False,
             status="disabled",
-            message="远程向量检索未开启，未发起 embedding 检查。",
+            message="向量检索未开启，未发起 embedding 检查。",
             checkedAt=checked_at,
         )
     if not has_runtime_key(runtime_config):
@@ -714,7 +778,7 @@ def reindex_embeddings(
             stale=stale,
             pending=status.pendingCount,
             ready=status.readyCount,
-            message="远程向量检索未开启，未发送资料切片。",
+            message="向量检索未开启，未发送资料切片。",
         )
     if not has_runtime_key(runtime):
         connection.commit()

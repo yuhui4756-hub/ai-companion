@@ -188,12 +188,33 @@ const providerPresets = [
 ] as const;
 const embeddingProviderPresets = [
   {
+    id: "ollama-bge-m3",
+    label: "Ollama 本地",
+    providerName: "ollama",
+    baseURL: "http://127.0.0.1:11434/api",
+    model: "bge-m3",
+    dimensions: 1024,
+    requiresApiKey: false,
+    note: "推荐本机中文检索基线；需先 ollama pull bge-m3，不需要 Key。",
+  },
+  {
+    id: "ollama-nomic",
+    label: "Ollama 轻量",
+    providerName: "ollama",
+    baseURL: "http://127.0.0.1:11434/api",
+    model: "nomic-embed-text",
+    dimensions: 768,
+    requiresApiKey: false,
+    note: "更小更轻的本地备选；适合资料量不大时快速验证。",
+  },
+  {
     id: "openai",
     label: "OpenAI",
     providerName: "openai_compatible",
     baseURL: "https://api.openai.com/v1",
     model: "text-embedding-3-small",
     dimensions: 1536,
+    requiresApiKey: true,
     note: "官方 embedding 接口，适合做稳定基线。",
   },
   {
@@ -203,6 +224,7 @@ const embeddingProviderPresets = [
     baseURL: "https://api.yyystore.icu/v1",
     model: "text-embedding-3-small",
     dimensions: 1536,
+    requiresApiKey: true,
     note: "使用用户端 Key；需要绑定 OpenAI 分组且上游支持 embeddings。",
   },
   {
@@ -212,6 +234,7 @@ const embeddingProviderPresets = [
     baseURL: "https://api.yyystore.icu/v1",
     model: "nowledge-embedding",
     dimensions: 1024,
+    requiresApiKey: true,
     note: "用于尝试后台映射名；若测试返回维度不同，按返回值修改 Dimensions。",
   },
 ] as const;
@@ -241,8 +264,32 @@ function getKnowledgeBackendErrorMessage(error: unknown): string {
   return "本地 Python 后端请求失败。";
 }
 
+function normalizeEmbeddingProviderName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function isLocalEmbeddingBaseURL(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" && ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLocalOllamaEmbeddingConfig(config: EmbeddingProviderLocalConfig): boolean {
+  return normalizeEmbeddingProviderName(config.providerName) === "ollama" && isLocalEmbeddingBaseURL(config.baseURL);
+}
+
+function embeddingProviderRequiresApiKey(config: EmbeddingProviderLocalConfig): boolean {
+  return !isLocalOllamaEmbeddingConfig(config);
+}
+
 function getEmbeddingHealthAdvice(status: string, message: string): string {
   const value = `${status} ${message}`.toLowerCase();
+  if (value.includes("local-url-required")) {
+    return "Ollama 本地模式只允许 http://127.0.0.1:11434/api 或 localhost，避免把本地资料误发到外网。";
+  }
   if (value.includes("http-401") || value.includes("authentication")) {
     return "请确认填写的是用户端 API Key，不是管理后台 Key；也可能是 Key 已失效。";
   }
@@ -250,7 +297,7 @@ function getEmbeddingHealthAdvice(status: string, message: string): string {
     return "Key 权限或订阅可能不允许 embedding；请检查 sub2api 分组、额度和上游账号权限。";
   }
   if (value.includes("http-404")) {
-    return "接口或模型可能不支持 embedding；sub2api 需使用 OpenAI 分组，并且上游账号要具备 embeddings 能力。";
+    return "接口或模型可能不支持 embedding；Ollama 请先 pull 对应模型，sub2api 需使用 OpenAI 分组并具备 embeddings 能力。";
   }
   if (value.includes("http-400")) {
     return "模型名或维度参数可能不被服务商接受；可先试 text-embedding-3-small，或按测试返回的维度调整 Dimensions。";
@@ -271,8 +318,11 @@ function getEmbeddingHealthDisabledReason(
   isChecking: boolean,
 ): string {
   if (!health.available) return "本地 Python 后端未连接，先刷新或启动后端。";
-  if (!config.enabled) return "请先勾选开启远程向量检索。";
-  if (!hasApiKey) return "请先填写 Embedding Key。";
+  if (!config.enabled) return "请先勾选开启向量检索。";
+  if (normalizeEmbeddingProviderName(config.providerName) === "ollama" && !isLocalEmbeddingBaseURL(config.baseURL)) {
+    return "Ollama 本地模式只允许 127.0.0.1 或 localhost 地址。";
+  }
+  if (embeddingProviderRequiresApiKey(config) && !hasApiKey) return "请先填写 Embedding Key。";
   if (isChecking) return "正在检查连接。";
   return "";
 }
@@ -463,14 +513,16 @@ export default function App() {
   const visibleKnowledgeSources = [...knowledgeSources].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const activeKnowledgeSourceCount = knowledgeSources.filter((source) => source.status === "active").length;
   const hasEmbeddingApiKey = embeddingConfig.apiKey.trim().length > 0;
+  const currentEmbeddingProviderRequiresApiKey = embeddingProviderRequiresApiKey(embeddingConfig);
+  const hasEmbeddingCredential = !currentEmbeddingProviderRequiresApiKey || hasEmbeddingApiKey;
   const embeddingHealthDisabledReason = getEmbeddingHealthDisabledReason(
     knowledgeBackendHealth,
     embeddingConfig,
     hasEmbeddingApiKey,
     isEmbeddingChecking,
   );
-  const canUseRemoteEmbedding =
-    knowledgeBackendHealth.available && embeddingConfig.enabled && hasEmbeddingApiKey && Boolean(knowledgeEmbeddingStatus?.vectorReady);
+  const canUseEmbedding =
+    knowledgeBackendHealth.available && embeddingConfig.enabled && hasEmbeddingCredential && Boolean(knowledgeEmbeddingStatus?.vectorReady);
   const mainCompanions = companions.filter((companion) => isRomanceCompanion(companion) || companion.showInMainList);
   const hiddenCompanions = companions.filter((companion) => !mainCompanions.some((profile) => profile.id === companion.id));
   const hasUserCreatedCompanion = useMemo(
@@ -859,7 +911,7 @@ export default function App() {
   async function handleSaveEmbeddingConfig() {
     persistEmbeddingConfigLocally();
     if (!knowledgeBackendHealth.available) {
-      setKnowledgeActionMessage("远程向量配置已保存在当前环境本地；本地 Python 后端未连接，暂未写入 SQLite 非密配置。");
+      setKnowledgeActionMessage("向量配置已保存在当前环境本地；本地 Python 后端未连接，暂未写入 SQLite 非密配置。");
       return;
     }
     try {
@@ -868,8 +920,8 @@ export default function App() {
       await refreshEmbeddingMetadata();
       setKnowledgeActionMessage(
         embeddingConfig.enabled
-          ? "远程向量非密配置已保存。API Key 只保存在当前环境本地，不写入 SQLite。"
-          : "已关闭远程向量检索，聊天会继续使用本地 BM25/关键词。",
+          ? "向量检索非密配置已保存。Embedding Key 只保存在当前环境本地，不写入 SQLite；Ollama 本地模式不需要 Key。"
+          : "已关闭向量检索，聊天会继续使用本地 BM25/关键词。",
       );
     } catch (error) {
       setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
@@ -912,10 +964,10 @@ export default function App() {
       return;
     }
     if (!embeddingConfig.enabled) {
-      setKnowledgeActionMessage("请先开启远程向量检索，再构建索引。关闭时不会发送资料切片。");
+      setKnowledgeActionMessage("请先开启向量检索，再构建索引。关闭时不会发送资料切片。");
       return;
     }
-    if (!hasEmbeddingApiKey) {
+    if (currentEmbeddingProviderRequiresApiKey && !hasEmbeddingApiKey) {
       setKnowledgeActionMessage("缺少 embedding API Key，未发送资料切片。");
       return;
     }
@@ -950,7 +1002,11 @@ export default function App() {
   }
 
   function applyEmbeddingProviderPreset(preset: (typeof embeddingProviderPresets)[number]) {
-    setKnowledgeActionMessage("已套用远程向量预设。预设不会填写或清空 Key，请保存配置后测试连接。");
+    setKnowledgeActionMessage(
+      preset.requiresApiKey
+        ? "已套用远程向量预设。预设不会填写或清空 Key，请保存配置后测试连接。"
+        : "已套用本地 Ollama 预设，不需要 Key；请确认 Ollama 已拉取模型后保存并测试连接。",
+    );
     setEmbeddingConfig((current) => ({
       ...current,
       providerName: preset.providerName,
@@ -958,7 +1014,7 @@ export default function App() {
       model: preset.model,
       dimensions: preset.dimensions,
       enabled: true,
-      apiKey: current.apiKey,
+      apiKey: preset.requiresApiKey ? current.apiKey : "",
     }));
   }
 
@@ -1228,7 +1284,7 @@ export default function App() {
     let knowledgeContext = "";
     if (knowledgeBackendHealth.available) {
       try {
-        const embeddingRuntimeConfig = canUseRemoteEmbedding ? embeddingConfig : undefined;
+        const embeddingRuntimeConfig = canUseEmbedding ? embeddingConfig : undefined;
         const searchResult = await searchPythonKnowledge({
           query: userInput,
           topK: 3,
@@ -2064,7 +2120,7 @@ export default function App() {
                 <p>所依是本地 BYOK 的 AI 恋爱伴侣应用。API Key、聊天记录、长期记忆、伴侣配置和风格摘要保存在当前浏览器或桌面应用本地；知识库资料由本机 Python 后端保存到 SQLite。</p>
                 <p>聊天时桌面版会优先经本机 Electron 代理请求模型服务商；Web 调试版没有桌面代理时仍可能由浏览器直连。项目不内置、不上传、不代管你的真实 Key。</p>
                 <p>本地 Python 后端可用时，会把伴侣、聊天、长期记忆、风格摘要和去 Key 的模型配置复制到本机 SQLite；旧 localStorage 不会自动清空，后端不可用时会回退。</p>
-                <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。远程向量检索默认关闭，开启后资料切片和检索问题才会发给你单独配置的 embedding 服务商。</p>
+                <p>知识库资料只在本地保存；聊天时只有命中的相关片段会随本次请求发给你配置的模型服务商，删除资料后不会再注入。向量检索默认关闭；Ollama 本地向量不会上传资料，远程向量会把资料切片和检索问题发给你单独配置的 embedding 服务商。</p>
                 <p>TA 是虚拟 AI 伴侣，不是现实中的某个人，也不会做线下承诺或替代现实关系。</p>
                 <p>敏感信息和不健康依赖表达不会作为长期记忆保存；自定义人设里也别放密钥、证件号、他人隐私、露骨危险内容或现实冒充要求。</p>
               </div>
@@ -3044,7 +3100,7 @@ export default function App() {
                       <p>
                         资料会保存到本机 Python 后端管理的 SQLite。聊天时只有检索命中的相关片段会随本次模型请求发给你配置的模型服务商；删除资料后不再注入。
                       </p>
-                      <p>远程向量检索默认关闭；开启并构建索引时，资料切片和检索问题会发给你单独配置的 embedding 服务商。</p>
+                      <p>向量检索默认关闭；Ollama 本地模式只调用本机模型，远程模式会把资料切片和检索问题发给你单独配置的 embedding 服务商。</p>
                       <p>{coreStorageStatus.message}</p>
                     </div>
                   </div>
@@ -3059,7 +3115,7 @@ export default function App() {
                   <div className="embedding-settings">
                     <div className="section-title compact-title">
                       <SlidersHorizontal size={18} />
-                      <h3>远程向量检索</h3>
+                      <h3>向量检索</h3>
                     </div>
                     <label className="toggle-row">
                       <input
@@ -3090,7 +3146,7 @@ export default function App() {
                         <span>{knowledgeBackendHealth.available ? "可用" : "等待后端连接"}</span>
                       </div>
                       <div className={knowledgeEmbeddingStatus?.vectorReady ? "embedding-status-line ready" : "embedding-status-line"}>
-                        <strong>远程向量</strong>
+                        <strong>向量索引</strong>
                         <span>
                           {!embeddingConfig.enabled
                             ? "未开启"
@@ -3163,7 +3219,7 @@ export default function App() {
                           type="password"
                           value={embeddingConfig.apiKey}
                           onChange={(event) => updateEmbeddingConfig("apiKey", event.target.value)}
-                          placeholder="只保存在当前环境本地，不写入 SQLite/导出"
+                          placeholder="Ollama 本地不需要；远程 Key 只保存在当前环境本地"
                         />
                       </label>
                     </div>
@@ -3189,7 +3245,7 @@ export default function App() {
                         disabled={
                           !knowledgeBackendHealth.available ||
                           !embeddingConfig.enabled ||
-                          !hasEmbeddingApiKey ||
+                          !hasEmbeddingCredential ||
                           isEmbeddingIndexing ||
                           activeKnowledgeSourceCount === 0
                         }
@@ -3204,11 +3260,13 @@ export default function App() {
                       </p>
                     )}
                     <p className="embedding-model-hints">
+                      本地优先试 <code>ollama pull bge-m3</code> 后选择 <code>Ollama 本地</code>；轻量备选是{" "}
+                      <code>ollama pull nomic-embed-text</code>。{" "}
                       sub2api 可先试 <code>text-embedding-3-small</code>；如果后台配置了模型映射，可再试{" "}
                       <code>nowledge-embedding</code>。测试成功但提示维度不一致时，按返回维度修改 Dimensions 后再重建索引。
                     </p>
                     <p className="embedding-privacy-note">
-                      关闭时聊天只用本机检索；开启后，构建索引会发送 active 资料切片，聊天检索可能发送当前问题。Embedding Key 与聊天模型 Key 分开保存。
+                      关闭时聊天只用本机 BM25/关键词；开启 Ollama 本地向量不会发送资料到外网，开启远程向量才会发送 active 资料切片和当前问题。Embedding Key 与聊天模型 Key 分开保存。
                     </p>
                   </div>
                   <form className="knowledge-form" onSubmit={handleImportKnowledge}>
@@ -3270,7 +3328,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="memory-note">
-                    <p>默认使用本地 FTS5/BM25 与关键词门槛；远程向量只在明确开启、配置 Key 且索引 ready 后参与融合检索。</p>
+                    <p>默认使用本地 FTS5/BM25 与关键词门槛；向量只在明确开启、索引 ready 且凭据/本地模型可用后参与融合检索。</p>
                     <p>知识片段会标记为“用户导入资料”，不会混入长期记忆，也不代表模型事实。</p>
                   </div>
                   {visibleKnowledgeSources.length === 0 ? (

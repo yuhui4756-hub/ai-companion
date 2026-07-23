@@ -25,6 +25,19 @@ def mock_runtime_config(*, enabled: bool = True, dimensions: int = 32, model: st
     }
 
 
+def ollama_runtime_config(*, enabled: bool = True, dimensions: int = 1024, base_url: str = "http://127.0.0.1:11434/api") -> dict:
+    return {
+        "providerName": "ollama",
+        "baseURL": base_url,
+        "model": "bge-m3",
+        "dimensions": dimensions,
+        "batchSize": 2,
+        "timeoutMs": 3000,
+        "enabled": enabled,
+        "apiKey": "",
+    }
+
+
 def seed_embedding_sources(client: TestClient) -> dict[str, dict]:
     payloads = [
         {
@@ -158,6 +171,47 @@ def test_mock_embedding_health_reindex_is_idempotent_and_hybrid_finds_semantic_m
         assert semantic_data["shouldInject"] is True
         assert semantic_data["hits"][0]["sourceTitle"] == "松果客服规范"
         assert "用户导入资料" in semantic_data["promptContext"]
+
+
+def test_ollama_embedding_does_not_require_api_key(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "embedding.sqlite"
+    monkeypatch.setenv("SUOYI_BACKEND_DB_PATH", str(db_path))
+    runtime = ollama_runtime_config()
+    calls: list[list[str]] = []
+
+    def fake_ollama_embeddings(texts, runtime_config):
+        calls.append(texts)
+        assert runtime_config.apiKey in (None, "")
+        return [[0.1 for _ in range(runtime["dimensions"])] for _ in texts]
+
+    monkeypatch.setattr(embeddings, "create_ollama_embeddings", fake_ollama_embeddings)
+
+    with TestClient(app) as client:
+        seed_embedding_sources(client)
+
+        health = client.post("/embedding/health/check", json={"runtimeConfig": runtime})
+        assert health.status_code == 200
+        assert health.json()["ok"] is True
+        assert health.json()["dimensions"] == runtime["dimensions"]
+
+        reindex = client.post("/knowledge/embeddings/reindex", json={"embeddingRuntimeConfig": runtime})
+        assert reindex.status_code == 200
+        assert reindex.json()["failed"] == 0
+        assert reindex.json()["indexed"] >= 2
+        assert calls
+
+
+def test_ollama_embedding_rejects_non_local_base_url(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SUOYI_BACKEND_DB_PATH", str(tmp_path / "embedding.sqlite"))
+    runtime = ollama_runtime_config(base_url="https://example.test/api")
+
+    with TestClient(app) as client:
+        health = client.post("/embedding/health/check", json={"runtimeConfig": runtime})
+        assert health.status_code == 200
+        data = health.json()
+        assert data["ok"] is False
+        assert data["status"] == "error"
+        assert data["message"] == "embedding-provider-local-url-required"
 
 
 def test_generic_query_does_not_call_embedding_even_when_vectors_are_ready(tmp_path: Path, monkeypatch) -> None:
