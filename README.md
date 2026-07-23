@@ -184,6 +184,7 @@ http://127.0.0.1:5173/
 - v0.1.3 已提供 Windows 桌面安装包和公开 GitHub Release；v0.1.2 Release 保留为手动回退下载点。
 - 当前没有后端账号系统，也没有云同步；数据默认保存在本地。核心数据 SQLite 迁移是本机复制导入，失败时继续使用 `localStorage`。
 - 当前公开安装包已内置 Python sidecar、本地 SQLite 知识库、核心数据迁移、RAG-Q1 结构化切片/FTS5-BM25、RAG-H1 远程 embedding 隐私门控与 hybrid retrieval，并通过发布候选 sidecar schema smoke 增强降低旧后端误打包风险。后续仍需继续完善细粒度 CRUD、恢复/清理 UI、SQLite 加密或 OS 安全存储。
+- RAG-H2 第一轮已加入可复现质量评测，覆盖相似资料不混答、口语字段、泛字段澄清、结构化切片和 mock hybrid 语义改写；详见 `docs/RAG_QUALITY_EVALUATION.md`。这不等于真实模型最终回答正确率已经完成，后续仍需用不敏感真实资料和问题集做端到端评估。
 - 远程向量检索目前是轻量 hybrid retrieval：SQLite 保存 JSON 向量，Python 本地计算余弦相似度并与 BM25/关键词结果融合；没有引入远程向量库、云同步或重型本地向量数据库。
 - QQ 近期只做 OneBot/NapCat 本地实验骨架；QQ 官方机器人保留为长期合规备选，微信继续暂缓。
 - Release 产物由构建命令生成，不提交进源码仓库。

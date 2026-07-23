@@ -63,13 +63,24 @@ GENERIC_QUERY_PARTS = {
     "预算金额",
     "负责人",
     "截止日期",
+    "上线窗口",
+    "上线时间",
+    "发布时间",
+    "发布窗口",
     "预算",
     "金额",
     "经费",
     "费用",
+    "成本",
+    "花费",
+    "多少钱",
     "负责",
     "截止",
     "日期",
+    "时间",
+    "折扣码",
+    "兑换码",
+    "优惠码",
     "编号",
     "代码",
     "项目",
@@ -103,14 +114,17 @@ GENERIC_QUERY_PARTS = {
     "呀",
 }
 FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "identifier": ("编号", "代码", "项目编号", "id", "identifier"),
-    "budget": ("预算", "预算金额", "金额", "经费", "费用", "budget"),
+    "identifier": ("编号", "代码", "项目编号", "折扣码", "兑换码", "优惠码", "id", "identifier", "code", "coupon code"),
+    "budget": ("预算", "预算金额", "金额", "经费", "费用", "成本", "花费", "多少钱", "budget", "cost"),
     "owner": ("负责人", "负责", "联系人", "owner", "person in charge"),
-    "deadline": ("截止日期", "截止", "日期", "截止时间", "deadline", "due date"),
+    "deadline": ("截止日期", "截止", "日期", "截止时间", "上线窗口", "上线时间", "发布时间", "发布窗口", "deadline", "due date", "launch date"),
 }
-FACT_LABELS = tuple(dict.fromkeys(label for labels in FIELD_SYNONYMS.values() for label in labels))
+EXTRA_FACT_LABELS = ("说明", "规则", "目标", "触发条件", "处理动作", "升级码", "证据来源")
+FACT_LABELS = tuple(dict.fromkeys([label for labels in FIELD_SYNONYMS.values() for label in labels] + list(EXTRA_FACT_LABELS)))
 FACT_LABEL_PATTERN = re.compile(
-    r"^\s*(?:[-*+]\s*)?(?:\*\*)?(编号|代码|项目编号|预算金额|预算|金额|经费|费用|负责人|负责|联系人|截止日期|截止时间|截止|日期|答案|id|identifier|budget|owner|deadline|due date)(?:\*\*)?\s*[:：|]\s*.+",
+    r"^\s*(?:[-*+]\s*)?(?:\*\*)?("
+    + "|".join(re.escape(label) for label in sorted(FACT_LABELS, key=len, reverse=True))
+    + r"|答案)(?:\*\*)?\s*[:：|]\s*.+",
     re.IGNORECASE,
 )
 IDENTIFIER_PATTERN = re.compile(
@@ -935,7 +949,16 @@ def score_row(row: sqlite3.Row, analysis: QueryAnalysis, *, from_fts: bool) -> t
     compact_heading = compact_text(row["heading_path"] or "")
     compact_content = compact_text(row["content"])
 
-    scores = {"source": 0.0, "identifier": 0.0, "term": 0.0, "field": 0.0, "phrase": 0.0, "fts": 0.0}
+    scores = {
+        "source": 0.0,
+        "identifier": 0.0,
+        "titleTerm": 0.0,
+        "headingTerm": 0.0,
+        "contentTerm": 0.0,
+        "field": 0.0,
+        "phrase": 0.0,
+        "fts": 0.0,
+    }
     if row["source_id"] in analysis.mentioned_source_ids:
         scores["source"] += 15
 
@@ -952,11 +975,11 @@ def score_row(row: sqlite3.Row, analysis: QueryAnalysis, *, from_fts: bool) -> t
         if not compact_term:
             continue
         if compact_term in compact_title:
-            scores["term"] += 12
+            scores["titleTerm"] += 12
         elif compact_term in compact_heading:
-            scores["term"] += 9
+            scores["headingTerm"] += 9
         elif compact_term in compact_content:
-            scores["term"] += 7 if has_cjk(compact_term) and len(compact_term) <= 3 else 5
+            scores["contentTerm"] += 7 if has_cjk(compact_term) and len(compact_term) <= 3 else 5
 
     if analysis.field_terms and content_has_field(row["content"], analysis.field_terms):
         scores["field"] += 5 * len(analysis.field_terms)
@@ -1108,6 +1131,8 @@ def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysi
     selected: list[KnowledgeHitResponse] = []
     selected_sources: set[str] = set()
     for candidate in reliable:
+        if candidate.source_id in selected_sources and not has_strong_chunk_signal(candidate):
+            continue
         if candidate.source_id not in selected_sources and len(selected_sources) >= 2:
             continue
         selected.append(candidate.hit)
@@ -1116,6 +1141,17 @@ def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysi
             break
 
     return selected, bool(selected), False, ""
+
+
+def has_strong_chunk_signal(candidate: SearchCandidate) -> bool:
+    scores = candidate.hit.scores
+    return (
+        scores.get("identifier", 0) >= 20
+        or scores.get("field", 0) > 0
+        or scores.get("phrase", 0) > 0
+        or scores.get("vector", 0) >= 0.55
+        or scores.get("contentTerm", 0) >= 10
+    )
 
 
 def search_knowledge(
