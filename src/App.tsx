@@ -186,6 +186,35 @@ const providerPresets = [
     note: "通用 OpenAI Chat Completions 兼容格式，可替换为其他服务商。",
   },
 ] as const;
+const embeddingProviderPresets = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    providerName: "openai_compatible",
+    baseURL: "https://api.openai.com/v1",
+    model: "text-embedding-3-small",
+    dimensions: 1536,
+    note: "官方 embedding 接口，适合做稳定基线。",
+  },
+  {
+    id: "sub2api-openai",
+    label: "sub2api",
+    providerName: "openai_compatible",
+    baseURL: "https://api.yyystore.icu/v1",
+    model: "text-embedding-3-small",
+    dimensions: 1536,
+    note: "使用用户端 Key；需要绑定 OpenAI 分组且上游支持 embeddings。",
+  },
+  {
+    id: "sub2api-mapped",
+    label: "sub2api 映射",
+    providerName: "openai_compatible",
+    baseURL: "https://api.yyystore.icu/v1",
+    model: "nowledge-embedding",
+    dimensions: 1024,
+    note: "用于尝试后台映射名；若测试返回维度不同，按返回值修改 Dimensions。",
+  },
+] as const;
 
 function makeMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -210,6 +239,42 @@ function getKnowledgeBackendErrorMessage(error: unknown): string {
   if (error instanceof PythonBackendError) return error.message;
   if (error instanceof Error) return `本地 Python 后端请求失败：${error.message}`;
   return "本地 Python 后端请求失败。";
+}
+
+function getEmbeddingHealthAdvice(status: string, message: string): string {
+  const value = `${status} ${message}`.toLowerCase();
+  if (value.includes("http-401") || value.includes("authentication")) {
+    return "请确认填写的是用户端 API Key，不是管理后台 Key；也可能是 Key 已失效。";
+  }
+  if (value.includes("http-403")) {
+    return "Key 权限或订阅可能不允许 embedding；请检查 sub2api 分组、额度和上游账号权限。";
+  }
+  if (value.includes("http-404")) {
+    return "接口或模型可能不支持 embedding；sub2api 需使用 OpenAI 分组，并且上游账号要具备 embeddings 能力。";
+  }
+  if (value.includes("http-400")) {
+    return "模型名或维度参数可能不被服务商接受；可先试 text-embedding-3-small，或按测试返回的维度调整 Dimensions。";
+  }
+  if (value.includes("http-429") || value.includes("quota")) {
+    return "服务商额度或频率限制不足；可以稍后重试或换一个有 embedding 额度的 Key/分组。";
+  }
+  if (value.includes("network") || value.includes("timeout")) {
+    return "Base URL 或网络连接可能不可用；sub2api 通常填写 https://api.yyystore.icu/v1。";
+  }
+  return "";
+}
+
+function getEmbeddingHealthDisabledReason(
+  health: PythonBackendHealth,
+  config: EmbeddingProviderLocalConfig,
+  hasApiKey: boolean,
+  isChecking: boolean,
+): string {
+  if (!health.available) return "本地 Python 后端未连接，先刷新或启动后端。";
+  if (!config.enabled) return "请先勾选开启远程向量检索。";
+  if (!hasApiKey) return "请先填写 Embedding Key。";
+  if (isChecking) return "正在检查连接。";
+  return "";
 }
 
 function companionDisplayName(companion: CompanionProfile): string {
@@ -398,6 +463,12 @@ export default function App() {
   const visibleKnowledgeSources = [...knowledgeSources].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const activeKnowledgeSourceCount = knowledgeSources.filter((source) => source.status === "active").length;
   const hasEmbeddingApiKey = embeddingConfig.apiKey.trim().length > 0;
+  const embeddingHealthDisabledReason = getEmbeddingHealthDisabledReason(
+    knowledgeBackendHealth,
+    embeddingConfig,
+    hasEmbeddingApiKey,
+    isEmbeddingChecking,
+  );
   const canUseRemoteEmbedding =
     knowledgeBackendHealth.available && embeddingConfig.enabled && hasEmbeddingApiKey && Boolean(knowledgeEmbeddingStatus?.vectorReady);
   const mainCompanions = companions.filter((companion) => isRomanceCompanion(companion) || companion.showInMainList);
@@ -815,10 +886,17 @@ export default function App() {
     try {
       const result = await checkPythonEmbeddingHealth(embeddingConfig);
       await refreshEmbeddingMetadata();
+      const dimensionAdvice =
+        result.ok && result.dimensions && result.dimensions !== embeddingConfig.dimensions
+          ? ` 返回维度是 ${result.dimensions}，当前 Dimensions 是 ${embeddingConfig.dimensions}；请改成 ${result.dimensions} 后再重建索引。`
+          : "";
+      const failureAdvice = result.ok ? "" : getEmbeddingHealthAdvice(result.status, result.message);
       setKnowledgeActionMessage(
         result.ok
-          ? `embedding provider 检查通过，返回 ${result.dimensions ?? embeddingConfig.dimensions} 维向量。`
-          : result.message,
+          ? `embedding provider 检查通过，返回 ${result.dimensions ?? embeddingConfig.dimensions} 维向量。${dimensionAdvice}`
+          : failureAdvice
+            ? `${result.message} ${failureAdvice}`
+            : result.message,
       );
     } catch (error) {
       setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
@@ -867,6 +945,19 @@ export default function App() {
       providerName: preset.providerName,
       baseURL: preset.baseURL,
       model: preset.model,
+      apiKey: current.apiKey,
+    }));
+  }
+
+  function applyEmbeddingProviderPreset(preset: (typeof embeddingProviderPresets)[number]) {
+    setKnowledgeActionMessage("已套用远程向量预设。预设不会填写或清空 Key，请保存配置后测试连接。");
+    setEmbeddingConfig((current) => ({
+      ...current,
+      providerName: preset.providerName,
+      baseURL: preset.baseURL,
+      model: preset.model,
+      dimensions: preset.dimensions,
+      enabled: true,
       apiKey: current.apiKey,
     }));
   }
@@ -2978,6 +3069,21 @@ export default function App() {
                       />
                       <span>开启后可与本地 BM25/关键词融合检索</span>
                     </label>
+                    <div className="embedding-preset-grid">
+                      {embeddingProviderPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          className="embedding-preset-button"
+                          type="button"
+                          onClick={() => applyEmbeddingProviderPreset(preset)}
+                        >
+                          <strong>{preset.label}</strong>
+                          <span>{preset.baseURL}</span>
+                          <small>{preset.model}</small>
+                          <em>{preset.note}</em>
+                        </button>
+                      ))}
+                    </div>
                     <div className="embedding-status-grid">
                       <div className="embedding-status-line">
                         <strong>本地 BM25/关键词</strong>
@@ -3070,7 +3176,8 @@ export default function App() {
                         className="ghost-button"
                         type="button"
                         onClick={handleCheckEmbeddingHealth}
-                        disabled={!knowledgeBackendHealth.available || !embeddingConfig.enabled || !hasEmbeddingApiKey || isEmbeddingChecking}
+                        disabled={Boolean(embeddingHealthDisabledReason)}
+                        title={embeddingHealthDisabledReason}
                       >
                         <RefreshCw size={16} />
                         {isEmbeddingChecking ? "检查中" : "测试连接"}
@@ -3091,6 +3198,15 @@ export default function App() {
                         {isEmbeddingIndexing ? "索引中" : "重建索引"}
                       </button>
                     </div>
+                    {embeddingHealthDisabledReason && (
+                      <p className="embedding-privacy-note">
+                        当前不能测试：{embeddingHealthDisabledReason}
+                      </p>
+                    )}
+                    <p className="embedding-model-hints">
+                      sub2api 可先试 <code>text-embedding-3-small</code>；如果后台配置了模型映射，可再试{" "}
+                      <code>nowledge-embedding</code>。测试成功但提示维度不一致时，按返回维度修改 Dimensions 后再重建索引。
+                    </p>
                     <p className="embedding-privacy-note">
                       关闭时聊天只用本机检索；开启后，构建索引会发送 active 资料切片，聊天检索可能发送当前问题。Embedding Key 与聊天模型 Key 分开保存。
                     </p>

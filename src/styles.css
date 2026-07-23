@@ -1017,6 +1017,55 @@ select:focus {
   gap: 8px;
 }
 
+.embedding-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.embedding-preset-button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 124px;
+  padding: 10px;
+  text-align: left;
+  color: #304852;
+  border: 1px solid #d7e1e6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.embedding-preset-button:hover {
+  border-color: #1f6f78;
+  background: #edf8f8;
+}
+
+.embedding-preset-button strong,
+.embedding-preset-button span,
+.embedding-preset-button small,
+.embedding-preset-button em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.embedding-preset-button strong {
+  font-size: 13px;
+}
+
+.embedding-preset-button span,
+.embedding-preset-button small,
+.embedding-preset-button em,
+.embedding-model-hints {
+  color: #5d727c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.embedding-preset-button em {
+  font-style: normal;
+}
+
 .embedding-status-line {
   display: grid;
   gap: 4px;
@@ -1086,6 +1135,10 @@ select:focus {
 }
 
 .embedding-privacy-note {
+  margin: 0;
+}
+
+.embedding-model-hints {
   margin: 0;
 }
 
@@ -1810,6 +1863,7 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .embedding-preset-grid,
   .embedding-config-grid,
   .embedding-actions {
     grid-template-columns: 1fr;
