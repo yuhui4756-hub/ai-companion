@@ -67,6 +67,21 @@ GENERIC_QUERY_PARTS = {
     "上线时间",
     "发布时间",
     "发布窗口",
+    "审核人",
+    "主讲人",
+    "保管人",
+    "助教",
+    "开票时限",
+    "时限",
+    "多久",
+    "发票类型",
+    "类型",
+    "支持格式",
+    "格式",
+    "名额",
+    "位置",
+    "哪里",
+    "在哪",
     "预算",
     "金额",
     "经费",
@@ -81,10 +96,19 @@ GENERIC_QUERY_PARTS = {
     "折扣码",
     "兑换码",
     "优惠码",
+    "优惠口令",
+    "口令",
+    "升级码",
     "编号",
     "代码",
     "项目",
     "计划",
+    "方案",
+    "规则",
+    "流程",
+    "清单",
+    "规范",
+    "红线",
     "活动",
     "资料",
     "文档",
@@ -114,12 +138,70 @@ GENERIC_QUERY_PARTS = {
     "呀",
 }
 FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "identifier": ("编号", "代码", "项目编号", "折扣码", "兑换码", "优惠码", "id", "identifier", "code", "coupon code"),
+    "identifier": (
+        "编号",
+        "代码",
+        "项目编号",
+        "折扣码",
+        "兑换码",
+        "优惠码",
+        "优惠口令",
+        "口令",
+        "升级码",
+        "id",
+        "identifier",
+        "code",
+        "coupon code",
+    ),
     "budget": ("预算", "预算金额", "金额", "经费", "费用", "成本", "花费", "多少钱", "budget", "cost"),
-    "owner": ("负责人", "负责", "联系人", "owner", "person in charge"),
-    "deadline": ("截止日期", "截止", "日期", "截止时间", "上线窗口", "上线时间", "发布时间", "发布窗口", "deadline", "due date", "launch date"),
+    "owner": ("负责人", "负责", "联系人", "审核人", "主讲人", "保管人", "助教", "owner", "person in charge"),
+    "deadline": (
+        "截止日期",
+        "截止",
+        "日期",
+        "截止时间",
+        "上线窗口",
+        "上线时间",
+        "发布时间",
+        "发布窗口",
+        "开票时限",
+        "时限",
+        "多久",
+        "借用窗口",
+        "上课时间",
+        "deadline",
+        "due date",
+        "launch date",
+    ),
+    "condition": ("触发条件", "触发", "条件"),
+    "format": ("支持格式", "格式"),
+    "location": ("位置", "哪里", "在哪里", "在哪", "放在哪里"),
+    "quota": ("名额", "人数"),
+    "type": ("发票类型", "类型"),
+    "deletion": ("删除规则", "删除", "删掉", "不再检索", "不再注入", "prompt", "模型参考"),
 }
-EXTRA_FACT_LABELS = ("说明", "规则", "目标", "触发条件", "处理动作", "升级码", "证据来源")
+EXTRA_FACT_LABELS = (
+    "规则",
+    "目标",
+    "触发条件",
+    "处理动作",
+    "证据来源",
+    "发票类型",
+    "开票时限",
+    "名额",
+    "支持格式",
+    "切片原则",
+    "删除规则",
+    "借用窗口",
+    "位置",
+    "助教",
+    "上课时间",
+    "语气原则",
+    "节奏",
+    "边界",
+    "数据库位置",
+    "回滚入口",
+)
 FACT_LABELS = tuple(dict.fromkeys([label for labels in FIELD_SYNONYMS.values() for label in labels] + list(EXTRA_FACT_LABELS)))
 FACT_LABEL_PATTERN = re.compile(
     r"^\s*(?:[-*+]\s*)?(?:\*\*)?("
@@ -313,6 +395,11 @@ def is_table_line(line: str) -> bool:
     return "|" in stripped and len([part for part in stripped.strip("|").split("|") if part.strip()]) >= 2
 
 
+def is_markdown_table_separator(line: str) -> bool:
+    cells = [part.strip() for part in line.strip().strip("|").split("|")]
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in cells)
+
+
 def is_list_line(line: str) -> bool:
     return bool(re.match(r"^\s*(?:[-*+]\s+|\d+[.)、]\s+)", line))
 
@@ -471,8 +558,21 @@ def parse_structured_blocks(text: str) -> list[StructuredBlock]:
             while index < len(lines) and is_table_line(lines[index]):
                 table_lines.append(lines[index].rstrip())
                 index += 1
-            chunk_type = "table_row" if len(table_lines) <= 2 else "table_block"
-            add_block(make_block("\n".join(table_lines), heading_path, chunk_type, {"rowCount": len(table_lines)}))
+            if len(table_lines) >= 3 and is_markdown_table_separator(table_lines[1]):
+                header = table_lines[0]
+                data_rows = [line for line in table_lines[2:] if not is_markdown_table_separator(line)]
+                for row_index, data_row in enumerate(data_rows):
+                    add_block(
+                        make_block(
+                            "\n".join([header, data_row]),
+                            heading_path,
+                            "table_row",
+                            {"rowCount": 1, "rowIndex": row_index},
+                        )
+                    )
+            else:
+                chunk_type = "table_row" if len(table_lines) <= 2 else "table_block"
+                add_block(make_block("\n".join(table_lines), heading_path, chunk_type, {"rowCount": len(table_lines)}))
             continue
 
         if is_question_line(stripped):
@@ -1123,14 +1223,25 @@ def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysi
     for candidate in reliable:
         source_scores[candidate.source_id] = max(source_scores.get(candidate.source_id, 0.0), candidate.score)
 
+    preferred_source_id: str | None = None
+    if analysis.field_terms and not analysis.mentioned_source_ids and reliable and has_disambiguating_chunk_signal(reliable[0]):
+        preferred_source_id = reliable[0].source_id
+
     if analysis.field_terms and not analysis.mentioned_source_ids and len(source_scores) > 1:
         sorted_scores = sorted(source_scores.values(), reverse=True)
-        if len(sorted_scores) >= 2 and sorted_scores[1] >= sorted_scores[0] * 0.72:
+        top_candidate = reliable[0]
+        if (
+            len(sorted_scores) >= 2
+            and sorted_scores[1] >= sorted_scores[0] * 0.72
+            and not has_disambiguating_chunk_signal(top_candidate)
+        ):
             return [], False, True, "ambiguous-field-query"
 
     selected: list[KnowledgeHitResponse] = []
     selected_sources: set[str] = set()
     for candidate in reliable:
+        if preferred_source_id is not None and candidate.source_id != preferred_source_id:
+            continue
         if candidate.source_id in selected_sources and not has_strong_chunk_signal(candidate):
             continue
         if candidate.source_id not in selected_sources and len(selected_sources) >= 2:
@@ -1151,6 +1262,17 @@ def has_strong_chunk_signal(candidate: SearchCandidate) -> bool:
         or scores.get("phrase", 0) > 0
         or scores.get("vector", 0) >= 0.55
         or scores.get("contentTerm", 0) >= 10
+    )
+
+
+def has_disambiguating_chunk_signal(candidate: SearchCandidate) -> bool:
+    scores = candidate.hit.scores
+    return (
+        scores.get("identifier", 0) >= 20
+        or scores.get("contentTerm", 0) >= 10
+        or scores.get("titleTerm", 0) >= 12
+        or scores.get("phrase", 0) > 0
+        or scores.get("vector", 0) >= 0.55
     )
 
 

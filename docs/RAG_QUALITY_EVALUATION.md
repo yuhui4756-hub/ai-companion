@@ -15,17 +15,26 @@
 - Markdown 结构化切片要把同一档案里的编号、上线窗口、预算和负责人保留在同一个 fact block。
 - 同一 source 下只有弱相关的附加片段不会被塞进 prompt，避免把旁支安全段落或干扰段落混进当前回答。
 - mock hybrid retrieval 可覆盖语义改写类问题，例如“用户要退钱时售后开头要先做什么？”应命中退款升级 SOP。
+- 真实资料形态基准包含 12 份不敏感 Markdown 文档和 48 个问题，其中 40 个问题覆盖本地 BM25/关键词检索、泛字段澄清和无关问题，8 个问题覆盖 mock hybrid 语义改写。
 
 ## 运行命令
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\test_rag_h2_quality.py -q
+.\.venv\Scripts\python -m pytest backend\tests\test_rag_realistic_benchmark.py -q
 .\.venv\Scripts\python -m pytest backend\tests -q
 ```
 
 ## 当前结论
 
 RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“检索出来并注入给模型的资料更干净”，不是证明“真实模型最终回答一定正确”。
+
+当前自动化基准按用例逐条断言：
+
+- top1 source 必须等于期望资料。
+- promptContext 必须包含关键答案片段。
+- promptContext 不能包含指定干扰片段。
+- 泛字段和无关问题必须不注入。
 
 真实回答正确率仍取决于：
 

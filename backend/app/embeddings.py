@@ -47,6 +47,9 @@ MOCK_SYNONYM_GROUPS: dict[str, tuple[str, ...]] = {
     "service_flow": ("客服", "客户", "沟通", "回复", "工单", "规范", "sop", "support"),
     "confirm_first": ("先确认", "确认问题", "第一步", "下一步", "处理前", "clarify"),
     "emotion_note": ("情绪", "记录", "复盘", "心情", "感受", "emotion"),
+    "privacy_data": ("隐私", "敏感", "身份证", "银行卡", "api key", "密钥", "cookie", "凭证", "授权"),
+    "knowledge_delete": ("删除", "删掉", "不再", "检索", "注入", "prompt", "模型参考"),
+    "coupon": ("优惠码", "折扣码", "兑换码", "优惠口令", "口令", "coupon"),
 }
 
 

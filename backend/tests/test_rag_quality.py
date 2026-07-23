@@ -228,7 +228,7 @@ def test_markdown_structured_chunks_keep_metadata_and_fact_blocks(tmp_path: Path
     assert all(row["content_hash"] for row in rows)
     assert all(row["token_estimate"] > 0 for row in rows)
     chunk_types = {row["chunk_type"] for row in rows}
-    assert {"fact_block", "list", "table_block", "qa"}.issubset(chunk_types)
+    assert {"fact_block", "list", "table_row", "qa"}.issubset(chunk_types)
     assert any(row["heading_path"] == "运营手册 / 项目档案" for row in rows)
     fact_block = next(row for row in rows if row["chunk_type"] == "fact_block" and "MD-OPS-2026" in row["content"])
     assert "预算金额：8.6 万元" in fact_block["content"]
