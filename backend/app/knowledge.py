@@ -26,6 +26,7 @@ CHUNKER_VERSION = "v2-structured"
 INJECTION_SCORE_THRESHOLD = 10.0
 VECTOR_ONLY_SCORE_BASE = 12.0
 VECTOR_SCORE_WEIGHT = 22.0
+VECTOR_PROMPT_MIN_COSINE = 0.6
 HYBRID_RRF_K = 60.0
 PROMPT_HEADER = "用户导入资料（仅供当前回复参考，不等同于长期记忆或模型事实）："
 ENGLISH_STOPWORDS = {
@@ -137,6 +138,38 @@ GENERIC_QUERY_PARTS = {
     "啊",
     "呀",
 }
+ALLOW_IMPORT_TERMS = (
+    "可以导入",
+    "可导入",
+    "允许导入",
+    "能导入",
+    "支持导入",
+    "哪些资料可以导入",
+)
+DENY_IMPORT_TERMS = (
+    "禁止导入",
+    "不要导入",
+    "不得导入",
+    "不能导入",
+    "不可以导入",
+    "未授权",
+    "敏感资料",
+    "身份证号",
+    "银行卡号",
+    "完整APIKey",
+    "APIKey",
+    "密钥",
+    "Cookie",
+    "扫码凭证",
+    "未授权聊天记录",
+)
+COLLECTION_QUERY_MARKERS = ("这些", "所有", "全部", "每个", "各个", "这一批")
+QUERY_EXPANSION_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("安慰", "回应", "命令"),
+        ("接住", "选择", "讲道理", "语气", "暂停"),
+    ),
+)
 FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     "identifier": (
         "编号",
@@ -176,7 +209,7 @@ FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     "condition": ("触发条件", "触发", "条件"),
     "format": ("支持格式", "格式"),
     "location": ("位置", "哪里", "在哪里", "在哪", "放在哪里"),
-    "quota": ("名额", "人数"),
+    "quota": ("名额", "人数", "数量", "几支", "几台", "几件", "几个", "多少个", "多少台"),
     "type": ("发票类型", "类型"),
     "deletion": ("删除规则", "删除", "删掉", "不再检索", "不再注入", "prompt", "模型参考"),
 }
@@ -911,6 +944,15 @@ def extract_field_terms(query: str) -> list[str]:
     return list(dict.fromkeys(fields))
 
 
+def expand_distinctive_terms(query: str) -> list[str]:
+    compact_query = compact_text(query)
+    expansions: list[str] = []
+    for triggers, terms in QUERY_EXPANSION_TERMS:
+        if any(compact_text(trigger) in compact_query for trigger in triggers):
+            expansions.extend(terms)
+    return list(dict.fromkeys(expansions))
+
+
 def source_mentions_from_query(query: str, active_sources: list[ActiveSource]) -> set[str]:
     compact_query = compact_text(query)
     remaining = strip_generic_parts(query)
@@ -943,6 +985,7 @@ def analyze_query(query: str, active_sources: list[ActiveSource]) -> QueryAnalys
         if source.id in mentioned_source_ids:
             distinctive_terms.extend(term for term in (source.title_core, source.compact_title) if len(term) >= 2)
 
+    distinctive_terms.extend(expand_distinctive_terms(query))
     distinctive_terms.extend(identifiers)
     distinctive_terms.extend(numeric_facts)
     distinctive_terms = list(dict.fromkeys(term.lower() for term in distinctive_terms if is_useful_keyword(term) or term in identifiers or term in numeric_facts))[:64]
@@ -960,6 +1003,25 @@ def analyze_query(query: str, active_sources: list[ActiveSource]) -> QueryAnalys
         has_distinctive_signal=has_signal,
         reason=reason,
     )
+
+
+def is_broad_source_family_field_query(analysis: QueryAnalysis, active_sources: list[ActiveSource]) -> bool:
+    if not analysis.field_terms or analysis.mentioned_source_ids:
+        return False
+    if not any(compact_text(marker) in analysis.compact_query for marker in COLLECTION_QUERY_MARKERS):
+        return False
+    for term in analysis.distinctive_terms:
+        compact_term = compact_text(term)
+        if len(compact_term) < 2:
+            continue
+        matching_sources = sum(
+            1
+            for source in active_sources
+            if compact_term in source.compact_title or compact_term in source.title_core
+        )
+        if matching_sources >= 3:
+            return True
+    return False
 
 
 def quote_fts_term(term: str) -> str:
@@ -1037,6 +1099,16 @@ def content_has_field(content: str, field_terms: list[str]) -> bool:
     return False
 
 
+def content_has_field_value(content: str, field_terms: list[str]) -> bool:
+    if "identifier" in field_terms and extract_identifier_tokens(content):
+        return True
+    if any(field in field_terms for field in ("budget", "deadline", "quota")) and extract_numeric_fact_tokens(content):
+        return True
+    if "location" in field_terms and (extract_identifier_tokens(content) or re.search(r"[A-Za-z]?\d+[-_]\d+", content)):
+        return True
+    return False
+
+
 def row_text_parts(row: sqlite3.Row) -> tuple[str, str, str]:
     title = normalize_text(row["source_title"])
     heading = normalize_text(row["heading_path"] or "")
@@ -1084,6 +1156,8 @@ def score_row(row: sqlite3.Row, analysis: QueryAnalysis, *, from_fts: bool) -> t
 
     if analysis.field_terms and content_has_field(row["content"], analysis.field_terms):
         scores["field"] += 5 * len(analysis.field_terms)
+        if content_has_field_value(row["content"], analysis.field_terms):
+            scores["fieldValue"] = 14.0
 
     if len(analysis.compact_query) >= 4 and analysis.compact_query in compact_content:
         scores["phrase"] += 8
@@ -1215,8 +1289,83 @@ def fuse_candidates(
     return fused
 
 
-def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysis, top_k: int) -> tuple[list[KnowledgeHitResponse], bool, bool, str]:
-    reliable = [candidate for candidate in candidates if candidate.score >= INJECTION_SCORE_THRESHOLD]
+def candidate_vector_cosine(candidate: SearchCandidate) -> float:
+    return float(candidate.hit.scores.get("vector", 0.0))
+
+
+def candidate_has_lexical_anchor(candidate: SearchCandidate) -> bool:
+    scores = candidate.hit.scores
+    return (
+        scores.get("identifier", 0) >= 20
+        or scores.get("source", 0) > 0
+        or scores.get("titleTerm", 0) > 0
+        or scores.get("headingTerm", 0) > 0
+        or scores.get("contentTerm", 0) > 0
+        or scores.get("phrase", 0) > 0
+    )
+
+
+def query_import_polarity(analysis: QueryAnalysis) -> str:
+    compact_query = analysis.compact_query
+    if any(compact_text(term) in compact_query for term in DENY_IMPORT_TERMS):
+        return "deny"
+    if any(compact_text(term) in compact_query for term in ALLOW_IMPORT_TERMS):
+        return "allow"
+    return ""
+
+
+def candidate_import_polarity(candidate: SearchCandidate) -> str:
+    compact_content = compact_text("\n".join([candidate.hit.headingPath, candidate.hit.content]))
+    allow = any(compact_text(term) in compact_content for term in ALLOW_IMPORT_TERMS)
+    deny = any(compact_text(term) in compact_content for term in DENY_IMPORT_TERMS)
+    if allow and not deny:
+        return "allow"
+    if deny and not allow:
+        return "deny"
+    return ""
+
+
+def conflicts_with_query_polarity(candidate: SearchCandidate, analysis: QueryAnalysis) -> bool:
+    query_polarity = query_import_polarity(analysis)
+    if not query_polarity:
+        return False
+    candidate_polarity = candidate_import_polarity(candidate)
+    return bool(candidate_polarity and candidate_polarity != query_polarity)
+
+
+def is_prompt_eligible_candidate(candidate: SearchCandidate, analysis: QueryAnalysis, *, is_primary: bool) -> bool:
+    scores = candidate.hit.scores
+    if conflicts_with_query_polarity(candidate, analysis):
+        return False
+    if analysis.identifiers and scores.get("identifier", 0) < 20:
+        return False
+    if candidate_has_lexical_anchor(candidate):
+        return True
+    if is_primary and candidate_vector_cosine(candidate) >= VECTOR_PROMPT_MIN_COSINE:
+        return True
+    return False
+
+
+def is_reliable_candidate(candidate: SearchCandidate, *, retrieval_mode: str) -> bool:
+    if candidate.score >= INJECTION_SCORE_THRESHOLD:
+        return True
+    scores = candidate.hit.scores
+    return retrieval_mode == "hybrid" and scores.get("contentTerm", 0) >= 7 and scores.get("fts", 0) > 0
+
+
+def select_prompt_hits(
+    candidates: list[SearchCandidate],
+    analysis: QueryAnalysis,
+    top_k: int,
+    *,
+    retrieval_mode: str,
+) -> tuple[list[KnowledgeHitResponse], bool, bool, str]:
+    reliable = [
+        candidate
+        for index, candidate in enumerate(candidates)
+        if is_reliable_candidate(candidate, retrieval_mode=retrieval_mode)
+        and is_prompt_eligible_candidate(candidate, analysis, is_primary=index == 0)
+    ]
     if not reliable:
         return [], False, False, "no-reliable-hit"
 
@@ -1225,8 +1374,13 @@ def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysi
         source_scores[candidate.source_id] = max(source_scores.get(candidate.source_id, 0.0), candidate.score)
 
     preferred_source_id: str | None = None
-    if analysis.field_terms and not analysis.mentioned_source_ids and reliable and has_disambiguating_chunk_signal(reliable[0]):
-        preferred_source_id = reliable[0].source_id
+    if analysis.field_terms and not analysis.mentioned_source_ids and reliable:
+        field_reliable = [candidate for candidate in reliable if candidate.hit.scores.get("field", 0) > 0]
+        field_with_content = [candidate for candidate in field_reliable if candidate.hit.scores.get("contentTerm", 0) > 0]
+        if field_with_content:
+            preferred_source_id = field_with_content[0].source_id
+        elif has_disambiguating_chunk_signal(reliable[0]):
+            preferred_source_id = reliable[0].source_id
 
     if analysis.field_terms and not analysis.mentioned_source_ids and len(source_scores) > 1:
         sorted_scores = sorted(source_scores.values(), reverse=True)
@@ -1243,7 +1397,15 @@ def select_prompt_hits(candidates: list[SearchCandidate], analysis: QueryAnalysi
     for candidate in reliable:
         if preferred_source_id is not None and candidate.source_id != preferred_source_id:
             continue
-        if candidate.source_id in selected_sources and not has_strong_chunk_signal(candidate):
+        if selected and candidate.source_id != selected[0].sourceId and not has_cross_source_signal(candidate):
+            continue
+        allow_field_sibling = (
+            analysis.field_terms
+            and not analysis.mentioned_source_ids
+            and candidate.source_id in selected_sources
+            and candidate.hit.scores.get("field", 0) > 0
+        )
+        if candidate.source_id in selected_sources and not (has_strong_chunk_signal(candidate) or allow_field_sibling):
             continue
         if candidate.source_id not in selected_sources and len(selected_sources) >= 2:
             continue
@@ -1259,10 +1421,18 @@ def has_strong_chunk_signal(candidate: SearchCandidate) -> bool:
     scores = candidate.hit.scores
     return (
         scores.get("identifier", 0) >= 20
-        or scores.get("field", 0) > 0
         or scores.get("phrase", 0) > 0
-        or scores.get("vector", 0) >= 0.55
         or scores.get("contentTerm", 0) >= 10
+    )
+
+
+def has_cross_source_signal(candidate: SearchCandidate) -> bool:
+    scores = candidate.hit.scores
+    return (
+        scores.get("identifier", 0) >= 20
+        or scores.get("phrase", 0) > 0
+        or scores.get("contentTerm", 0) >= 14
+        or (scores.get("source", 0) > 0 and scores.get("titleTerm", 0) > 0)
     )
 
 
@@ -1273,7 +1443,6 @@ def has_disambiguating_chunk_signal(candidate: SearchCandidate) -> bool:
         or scores.get("contentTerm", 0) >= 10
         or scores.get("titleTerm", 0) >= 12
         or scores.get("phrase", 0) > 0
-        or scores.get("vector", 0) >= 0.55
     )
 
 
@@ -1299,6 +1468,20 @@ def search_knowledge(
             shouldInject=False,
             needsClarification=True,
             reason=analysis.reason,
+            ftsReady=fts_available,
+            embeddingUsed=False,
+            embeddingReady=False,
+            embeddingReason="query-needs-specific-source-or-entity",
+        )
+
+    if is_broad_source_family_field_query(analysis, active_sources):
+        return SearchKnowledgeResponse(
+            hits=[],
+            promptContext="",
+            mode=mode,
+            shouldInject=False,
+            needsClarification=True,
+            reason="ambiguous-source-family-query",
             ftsReady=fts_available,
             embeddingUsed=False,
             embeddingReady=False,
@@ -1347,7 +1530,12 @@ def search_knowledge(
         elif vector_result.used:
             mode = "hybrid-fallback"
 
-    selected_hits, should_inject, needs_clarification, reason = select_prompt_hits(candidates, analysis, top_k)
+    selected_hits, should_inject, needs_clarification, reason = select_prompt_hits(
+        candidates,
+        analysis,
+        top_k,
+        retrieval_mode=retrieval_mode,
+    )
     return SearchKnowledgeResponse(
         hits=selected_hits,
         promptContext=format_hits_for_prompt(selected_hits, prompt_budget) if should_inject else "",

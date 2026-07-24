@@ -202,6 +202,40 @@ REALISTIC_DOCUMENTS = [
 ]
 
 
+def build_distractor_documents(count: int = 24) -> list[dict[str, str]]:
+    owners = ["林溪", "唐晚", "周屿", "姜宁", "叶舟", "宋澜", "顾南", "许知", "温然", "陆予", "夏禾", "秦越"]
+    topics = ["运营复盘", "社群活动", "硬件借用", "课程排班", "发票答疑", "退款跟进"]
+    documents: list[dict[str, str]] = []
+    for index in range(1, count + 1):
+        owner = owners[(index - 1) % len(owners)]
+        topic = topics[(index - 1) % len(topics)]
+        title = f"萤火{topic}档案 {index:02d}"
+        documents.append(
+            {
+                "title": title,
+                "sourceType": "markdown",
+                "content": f"""
+# {title}
+
+## 项目档案
+编号：YH-DISTRACTOR-2026-{index:02d}
+上线窗口：2026-10-{(index % 20) + 1:02d} 10:30
+预算金额：{3 + index / 10:.1f} 万元
+负责人：{owner}
+说明：这是一份用于扩大知识库规模的干扰资料，主题是{topic}，不应覆盖核心评测资料。
+
+## 操作边界
+规则：只回答本档案自己的编号、预算、负责人和上线窗口，不替代其他资料来源。
+""".strip(),
+            }
+        )
+    return documents
+
+
+DISTRACTOR_DOCUMENTS = build_distractor_documents()
+BENCHMARK_DOCUMENTS = [*REALISTIC_DOCUMENTS, *DISTRACTOR_DOCUMENTS]
+
+
 @dataclass(frozen=True)
 class BenchmarkCase:
     name: str
@@ -336,6 +370,47 @@ LEXICAL_CASES = [
 ]
 
 
+DISTRACTOR_CASES = [
+    BenchmarkCase(
+        "large corpus distractor owner 07",
+        "萤火运营复盘档案 07 的负责人是谁？",
+        "萤火运营复盘档案 07",
+        ("顾南",),
+        ("YH-DISTRACTOR-2026-08", "沈知夏"),
+    ),
+    BenchmarkCase(
+        "large corpus distractor budget 12",
+        "萤火退款跟进档案 12 的预算是多少？",
+        "萤火退款跟进档案 12",
+        ("4.2 万元",),
+        ("21.6 万元", "YH-DISTRACTOR-2026-11"),
+    ),
+    BenchmarkCase(
+        "large corpus distractor id 18",
+        "YH-DISTRACTOR-2026-18 是哪份资料？",
+        "萤火退款跟进档案 18",
+        ("YH-DISTRACTOR-2026-18",),
+        ("YH-DISTRACTOR-2026-17", "BJ-REFUND-42"),
+    ),
+    BenchmarkCase(
+        "large corpus distractor launch 24",
+        "萤火退款跟进档案 24 什么时候上线？",
+        "萤火退款跟进档案 24",
+        ("2026-10-05 10:30",),
+        ("2026-10-04", "2026-08-18"),
+    ),
+    BenchmarkCase(
+        "large corpus generic owner remains clarify",
+        "这些萤火档案的负责人是谁？",
+        None,
+        should_inject=False,
+        needs_clarification=True,
+    ),
+]
+
+LEXICAL_CASES.extend(DISTRACTOR_CASES)
+
+
 HYBRID_CASES = [
     BenchmarkCase("renewal paraphrase", "老用户续费提醒一开始要先做什么？", "青柚会员计划", ("先确认续费意愿",), ("韩序",), retrieval_mode="hybrid"),
     BenchmarkCase("refund paraphrase", "客户要退钱时售后开头先做啥？", "蓝鲸退款流程", ("先安抚情绪", "核对订单号"), ("电子普通发票",), retrieval_mode="hybrid"),
@@ -361,7 +436,7 @@ HYBRID_CASES = [
 
 
 def seed_realistic_documents(client: TestClient) -> None:
-    for payload in REALISTIC_DOCUMENTS:
+    for payload in BENCHMARK_DOCUMENTS:
         response = client.post("/knowledge/sources", json=payload)
         assert response.status_code == 201
 
@@ -402,8 +477,9 @@ def test_realistic_markdown_rag_benchmark_precision_and_no_answer_cases(tmp_path
     monkeypatch.setenv("SUOYI_BACKEND_DB_PATH", str(tmp_path / "rag-realistic.sqlite"))
 
     assert len(REALISTIC_DOCUMENTS) == 12
-    assert len(LEXICAL_CASES) >= 100
-    assert len(LEXICAL_CASES) + len(HYBRID_CASES) >= 120
+    assert len(BENCHMARK_DOCUMENTS) >= 36
+    assert len(LEXICAL_CASES) >= 120
+    assert len(LEXICAL_CASES) + len(HYBRID_CASES) >= 140
 
     with TestClient(app) as client:
         seed_realistic_documents(client)
@@ -423,7 +499,7 @@ def test_realistic_hybrid_benchmark_with_mock_embeddings(tmp_path: Path, monkeyp
         reindex = client.post("/knowledge/embeddings/reindex", json={"embeddingRuntimeConfig": runtime})
         assert reindex.status_code == 200
         assert reindex.json()["failed"] == 0
-        assert reindex.json()["indexed"] >= len(REALISTIC_DOCUMENTS)
+        assert reindex.json()["indexed"] >= len(BENCHMARK_DOCUMENTS)
 
         failures = [failure for case in HYBRID_CASES if (failure := evaluate_case(client, case, runtime=runtime))]
 

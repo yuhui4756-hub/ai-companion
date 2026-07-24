@@ -114,9 +114,9 @@ def run_benchmark() -> list[BenchmarkResult]:
         from fastapi.testclient import TestClient
 
         from backend.tests.test_rag_realistic_benchmark import (
+            BENCHMARK_DOCUMENTS,
             HYBRID_CASES,
             LEXICAL_CASES,
-            REALISTIC_DOCUMENTS,
             app,
             realistic_runtime_config,
             seed_realistic_documents,
@@ -158,7 +158,7 @@ def run_benchmark() -> list[BenchmarkResult]:
         print("# 所依 RAG Benchmark Report")
         print("")
         print("本报告验证的是知识库检索与 prompt 注入是否命中预期资料，不等同于真实大模型最终回答准确率。")
-        print(f"- corpus_documents: {len(REALISTIC_DOCUMENTS)}")
+        print(f"- corpus_documents: {len(BENCHMARK_DOCUMENTS)}")
         print(
             f"- pilot_before_optimization: {PILOT_BEFORE_PASSED}/{PILOT_BEFORE_TOTAL} "
             f"({pass_rate(PILOT_BEFORE_PASSED, PILOT_BEFORE_TOTAL)})"

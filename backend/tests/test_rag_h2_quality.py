@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import backend.app.knowledge as knowledge
+from backend.app.embeddings import VectorCandidate, VectorSearchResult
 from backend.app.main import app
 
 
@@ -253,3 +255,72 @@ def test_h2_hybrid_mock_embedding_covers_paraphrased_process_query(tmp_path: Pat
         ).json()
         assert data["embeddingReady"] is True
         assert data["mode"] in {"hybrid", "hybrid-fallback"}
+
+
+def test_h2_field_query_prefers_structured_fact_over_vector_topic(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SUOYI_BACKEND_DB_PATH", str(tmp_path / "rag-h2-field.sqlite"))
+    runtime = mock_runtime_config()
+
+    def fake_vector_search(*_args, **_kwargs):
+        return VectorSearchResult(
+            candidates=[
+                VectorCandidate(
+                    source_id="fake-topic-source",
+                    source_title="硬件巡检概览",
+                    chunk_id="fake-topic-chunk",
+                    chunk_index=0,
+                    content="说明：硬件巡检覆盖会议室投屏、备用路由器和直播麦克风。",
+                    heading_path="硬件巡检概览 / 范围",
+                    chunk_type="paragraph",
+                    cosine=0.92,
+                )
+            ],
+            used=True,
+            ready=True,
+        )
+
+    monkeypatch.setattr(knowledge, "search_embedding_candidates", fake_vector_search)
+
+    with TestClient(app) as client:
+        for payload in [
+            {
+                "title": "硬件巡检概览",
+                "sourceType": "markdown",
+                "content": """
+# 硬件巡检概览
+
+## 范围
+说明：硬件巡检覆盖会议室投屏、备用路由器和直播麦克风。
+""".strip(),
+            },
+            {
+                "title": "直播设备表",
+                "sourceType": "markdown",
+                "content": """
+# 直播设备表
+
+## 设备表
+| 设备 | 数量 | 位置 |
+| --- | --- | --- |
+| 直播麦克风 | 3 | B2-03 |
+""".strip(),
+            },
+        ]:
+            response = client.post("/knowledge/sources", json=payload)
+            assert response.status_code == 201
+
+        search = client.post(
+            "/knowledge/search",
+            json={
+                "query": "直播麦克风位置是哪里？",
+                "topK": 2,
+                "retrievalMode": "hybrid",
+                "embeddingRuntimeConfig": runtime,
+            },
+        )
+        assert search.status_code == 200
+        data = search.json()
+        assert data["shouldInject"] is True
+        assert data["hits"][0]["sourceTitle"] == "直播设备表"
+        assert "B2-03" in data["promptContext"]
+        assert "硬件巡检覆盖" not in data["promptContext"]
