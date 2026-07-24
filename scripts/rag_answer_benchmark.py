@@ -86,6 +86,7 @@ def normalize_for_match(value: str) -> str:
         lambda match: f"{match.group(1)}{int(match.group(2)):02d}{int(match.group(3)):02d}",
         normalized,
     )
+    normalized = re.sub(r"[*_`~#>\[\]（）()【】《》“”\"'：:，,。；;！!？?、·|/\\]", "", normalized)
     return re.sub(r"\s+", "", normalized)
 
 
