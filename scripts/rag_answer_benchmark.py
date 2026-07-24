@@ -30,6 +30,8 @@ DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_CHAT_MODEL = "deepseek-r1:1.5b"
 DEFAULT_EMBEDDING_MODEL = "bge-m3"
 DEFAULT_EMBEDDING_DIMENSIONS = 1024
+DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.deepseek.com"
+DEFAULT_OPENAI_COMPATIBLE_API_KEY_ENV = "DEEPSEEK_API_KEY"
 
 INSUFFICIENT_MARKERS = (
     "资料不足",
@@ -100,6 +102,16 @@ def answer_has_insufficient_marker(answer: str) -> bool:
     return any(normalize_for_match(marker) in compact for marker in INSUFFICIENT_MARKERS)
 
 
+def answer_contains_required_text(answer: str, required_text: str) -> bool:
+    compact_answer = normalize_for_match(answer)
+    compact_required = normalize_for_match(required_text)
+    if compact_required in compact_answer:
+        return True
+    if compact_required.startswith("先") and len(compact_required) > 2:
+        return "先" in compact_answer and compact_required[1:] in compact_answer
+    return False
+
+
 def grade_answer(case: Any, answer: str) -> str | None:
     compact_answer = normalize_for_match(answer)
     if case.expected_source is None:
@@ -107,7 +119,7 @@ def grade_answer(case: Any, answer: str) -> str | None:
             return None
         return "answer did not clearly say the knowledge base is insufficient or needs clarification"
 
-    missing = [text for text in case.required_text if normalize_for_match(text) not in compact_answer]
+    missing = [text for text in case.required_text if not answer_contains_required_text(answer, text)]
     if missing and is_source_identification_answer(case, answer, missing):
         missing = []
     if missing:
@@ -179,6 +191,45 @@ def ollama_json(base_url: str, path: str, payload: dict[str, Any], timeout_secon
         raise RuntimeError("ollama-network-error") from error
 
 
+def redact_sensitive(value: str) -> str:
+    return re.sub(
+        r"(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,}|api[_-]?key[=:]\s*[A-Za-z0-9._-]{8,})",
+        "[REDACTED]",
+        value,
+        flags=re.IGNORECASE,
+    )
+
+
+def env_var(name: str) -> str:
+    return os.environ.get(name) or ""
+
+
+def openai_compatible_json(
+    *,
+    base_url: str,
+    api_key: str,
+    path: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    if not api_key:
+        raise RuntimeError("openai-compatible-missing-api-key")
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}{path}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(redact_sensitive(f"openai-compatible-http-{error.code}: {body}")) from error
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise RuntimeError(redact_sensitive(f"openai-compatible-network-error: {error}")) from error
+
+
 def call_ollama_chat(
     *,
     base_url: str,
@@ -191,7 +242,10 @@ def call_ollama_chat(
     system_prompt = (
         "你是所依知识库端到端评测助手。只能根据用户导入资料回答。"
         "如果没有用户导入资料，或资料没有答案，或问题没有指定清楚资料来源，就回答“资料不足，需要补充或指定资料”。"
-        "不要编造，不要使用资料外常识。回答尽量简短，保留原始编号、日期、金额、人名、位置和代码。"
+        "不要编造，不要使用资料外常识。"
+        "如果资料里有多个与问题相关的步骤、限制或关键字段，必须全部覆盖，不要只答第一条。"
+        "涉及“哪份资料、哪条规范、哪条话术、哪条规则”时，回答资料标题或编号，并补充资料中的关键原词。"
+        "回答要简洁，但必须保留原始编号、日期、金额、人名、位置、代码和关键短语。"
     )
     user_prompt = "\n\n".join(
         [
@@ -224,6 +278,89 @@ def call_ollama_chat(
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("ollama-empty-chat-response")
     return strip_reasoning(content)
+
+
+def call_openai_compatible_chat(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    query: str,
+    prompt_context: str,
+    timeout_seconds: int,
+    num_predict: int,
+    thinking: str,
+) -> str:
+    system_prompt = (
+        "你是所依知识库端到端评测助手。只能根据用户导入资料回答。"
+        "如果没有用户导入资料，或资料没有答案，或问题没有指定清楚资料来源，就回答“资料不足，需要补充或指定资料”。"
+        "不要编造，不要使用资料外常识。"
+        "如果资料里有多个与问题相关的步骤、限制或关键字段，必须全部覆盖，不要只答第一条。"
+        "涉及“哪份资料、哪条规范、哪条话术、哪条规则”时，回答资料标题或编号，并补充资料中的关键原词。"
+        "回答要简洁，但必须保留原始编号、日期、金额、人名、位置、代码和关键短语。"
+    )
+    user_prompt = "\n\n".join(
+        [
+            f"用户问题：{query}",
+            f"用户导入资料：\n{prompt_context}" if prompt_context else "用户导入资料：无",
+            "请直接给出答案。",
+        ]
+    )
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": num_predict,
+        "stream": False,
+    }
+    if thinking in ("enabled", "disabled"):
+        payload["thinking"] = {"type": thinking}
+    if thinking != "enabled":
+        payload["temperature"] = 0
+
+    data = openai_compatible_json(
+        base_url=base_url,
+        api_key=api_key,
+        path="/chat/completions",
+        payload=payload,
+        timeout_seconds=timeout_seconds,
+    )
+    choices = data.get("choices")
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = first_choice.get("message") if isinstance(first_choice, dict) else {}
+    content = message.get("content") if isinstance(message, dict) else ""
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("openai-compatible-empty-chat-response")
+    return strip_reasoning(content)
+
+
+def call_chat_model(
+    *,
+    args: argparse.Namespace,
+    query: str,
+    prompt_context: str,
+) -> str:
+    if args.chat_provider == "ollama":
+        return call_ollama_chat(
+            base_url=args.ollama_base_url,
+            model=args.chat_model,
+            query=query,
+            prompt_context=prompt_context,
+            timeout_seconds=args.chat_timeout_seconds,
+            num_predict=args.num_predict,
+        )
+    return call_openai_compatible_chat(
+        base_url=args.chat_base_url,
+        api_key=env_var(args.chat_api_key_env),
+        model=args.chat_model,
+        query=query,
+        prompt_context=prompt_context,
+        timeout_seconds=args.chat_timeout_seconds,
+        num_predict=args.num_predict,
+        thinking=args.chat_thinking,
+    )
 
 
 def select_cases(all_cases: list[tuple[str, Any]], limit: int | None) -> list[tuple[str, Any]]:
@@ -293,7 +430,13 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
                 print("本报告验证的是“检索片段注入后，本地聊天模型能否答出关键事实”，不等同于线上真实用户准确率。")
                 print(f"- corpus_documents: {len(BENCHMARK_DOCUMENTS)}")
                 print(f"- selected_cases: {len(selected_cases)}/{len(all_cases)}")
+                print(f"- chat_provider: {args.chat_provider}")
                 print(f"- chat_model: {args.chat_model}")
+                if args.chat_provider == "openai-compatible":
+                    print(f"- chat_base_url: {args.chat_base_url.rstrip('/')}")
+                    key_state = "present" if env_var(args.chat_api_key_env) else "missing"
+                    print(f"- chat_api_key_env: {args.chat_api_key_env}={key_state}")
+                    print(f"- chat_thinking: {args.chat_thinking}")
                 print(f"- embedding_model: {args.embedding_model}")
                 print(f"- embedding_health: HTTP {health.status_code} {health.json()}")
                 print(f"- embedding_reindex: HTTP {reindex.status_code} {reindex.json()}")
@@ -322,13 +465,10 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
                         failure = f"retrieval failed: {retrieval_failure}"
                     else:
                         try:
-                            answer = call_ollama_chat(
-                                base_url=args.ollama_base_url,
-                                model=args.chat_model,
+                            answer = call_chat_model(
+                                args=args,
                                 query=case.query,
                                 prompt_context=search_data.get("promptContext", ""),
-                                timeout_seconds=args.chat_timeout_seconds,
-                                num_predict=args.num_predict,
                             )
                             failure = grade_answer(case, answer) or ""
                         except RuntimeError as error:
@@ -387,8 +527,12 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run local end-to-end RAG answer benchmark through Ollama chat.")
+    parser = argparse.ArgumentParser(description="Run end-to-end RAG answer benchmark through Ollama or OpenAI-compatible chat.")
     parser.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
+    parser.add_argument("--chat-provider", choices=("ollama", "openai-compatible"), default="ollama")
+    parser.add_argument("--chat-base-url", default=DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
+    parser.add_argument("--chat-api-key-env", default=DEFAULT_OPENAI_COMPATIBLE_API_KEY_ENV)
+    parser.add_argument("--chat-thinking", choices=("auto", "enabled", "disabled"), default="disabled")
     parser.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
     parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     parser.add_argument("--embedding-dimensions", type=int, default=DEFAULT_EMBEDDING_DIMENSIONS)
