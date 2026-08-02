@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -60,6 +61,21 @@ ENGLISH_STOPWORDS = {
     "why",
     "with",
 }
+SOURCE_TITLE_STOPWORDS = {
+    "api",
+    "docs",
+    "official",
+    "summary",
+    "guide",
+    "reference",
+    "官方",
+    "摘要",
+    "文档",
+    "资料",
+    "说明",
+    "配置",
+    "发布",
+}
 GENERIC_QUERY_PARTS = {
     "预算金额",
     "负责人",
@@ -79,6 +95,16 @@ GENERIC_QUERY_PARTS = {
     "类型",
     "支持格式",
     "格式",
+    "Base URL",
+    "baseurl",
+    "base url",
+    "端点",
+    "路径",
+    "接口",
+    "权限",
+    "令牌",
+    "变量",
+    "环境变量",
     "名额",
     "位置",
     "哪里",
@@ -124,7 +150,10 @@ GENERIC_QUERY_PARTS = {
     "哪位",
     "哪个",
     "哪天",
+    "哪些",
     "什么时候",
+    "通常",
+    "包含",
     "请问",
     "告诉我",
     "帮我",
@@ -169,6 +198,34 @@ QUERY_EXPANSION_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("安慰", "回应", "命令"),
         ("接住", "选择", "讲道理", "语气", "暂停"),
     ),
+    (
+        ("浏览器请求", "http错误", "http 错误", "500", "404", "catch"),
+        ("fetch", "response", "ok", "status", "promise", "reject"),
+    ),
+)
+HTTP_FETCH_QUERY_MARKERS = (
+    "浏览器请求",
+    "http错误",
+    "http 错误",
+    "http",
+    "500",
+    "404",
+    "catch",
+    "fetch",
+)
+HTTP_FETCH_CONTENT_ANCHORS = (
+    "fetch",
+    "response",
+    "http",
+    "status",
+    "reject",
+    "catch",
+    "json",
+    "请求体",
+    "请求",
+    "响应",
+    "404",
+    "500",
 )
 FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     "identifier": (
@@ -208,7 +265,7 @@ FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     ),
     "condition": ("触发条件", "触发", "条件"),
     "format": ("支持格式", "格式"),
-    "location": ("位置", "哪里", "在哪里", "在哪", "放在哪里"),
+    "location": ("位置", "在哪里", "在哪", "放在哪里"),
     "quota": ("名额", "人数", "数量", "几支", "几台", "几件", "几个", "多少个", "多少台"),
     "type": ("发票类型", "类型"),
     "deletion": ("删除规则", "删除", "删掉", "不再检索", "不再注入", "prompt", "模型参考"),
@@ -953,15 +1010,36 @@ def expand_distinctive_terms(query: str) -> list[str]:
     return list(dict.fromkeys(expansions))
 
 
+def source_title_aliases(title: str) -> list[str]:
+    aliases: list[str] = []
+    for term in extract_english_terms(title):
+        compact = compact_text(term)
+        if len(compact) >= 4 and compact not in SOURCE_TITLE_STOPWORDS:
+            aliases.append(compact)
+    for sequence in re.findall(r"[\u4e00-\u9fff]{2,}", title):
+        compact_sequence = compact_text(sequence)
+        if compact_sequence and compact_sequence not in SOURCE_TITLE_STOPWORDS:
+            stripped = strip_generic_parts(compact_sequence)
+            if len(stripped) >= 2:
+                aliases.append(stripped)
+    return list(dict.fromkeys(aliases))
+
+
 def source_mentions_from_query(query: str, active_sources: list[ActiveSource]) -> set[str]:
     compact_query = compact_text(query)
     remaining = strip_generic_parts(query)
     mentioned: set[str] = set()
+    aliases_by_source = {source.id: source_title_aliases(source.title) for source in active_sources}
+    alias_counts = Counter(alias for aliases in aliases_by_source.values() for alias in aliases)
     for source in active_sources:
         if len(source.compact_title) >= 2 and source.compact_title in compact_query:
             mentioned.add(source.id)
             continue
         if len(source.title_core) >= 2 and source.title_core in remaining:
+            mentioned.add(source.id)
+            continue
+        matched_aliases = [alias for alias in aliases_by_source[source.id] if alias in compact_query]
+        if len(matched_aliases) >= 2 or any(alias_counts[alias] == 1 for alias in matched_aliases):
             mentioned.add(source.id)
     return mentioned
 
@@ -1208,6 +1286,8 @@ def build_candidates(rows: list[sqlite3.Row], analysis: QueryAnalysis, *, from_f
 def vector_candidate_to_search_candidate(candidate: VectorCandidate, analysis: QueryAnalysis) -> SearchCandidate | None:
     if analysis.field_terms and analysis.mentioned_source_ids and not content_has_field(candidate.content, analysis.field_terms):
         return None
+    if query_has_http_fetch_intent(analysis) and not candidate_has_http_fetch_anchor(candidate):
+        return None
 
     score = VECTOR_ONLY_SCORE_BASE + candidate.cosine * VECTOR_SCORE_WEIGHT
     scores = {"vector": round(candidate.cosine, 3)}
@@ -1234,6 +1314,18 @@ def vector_candidate_to_search_candidate(candidate: VectorCandidate, analysis: Q
             scores=scores,
         ),
     )
+
+
+def query_has_http_fetch_intent(analysis: QueryAnalysis) -> bool:
+    normalized_query = analysis.normalized_query
+    compact_query = analysis.compact_query
+    return any(compact_text(marker) in compact_query or marker.lower() in normalized_query for marker in HTTP_FETCH_QUERY_MARKERS)
+
+
+def candidate_has_http_fetch_anchor(candidate: VectorCandidate) -> bool:
+    compact = compact_text("\n".join([candidate.source_title, candidate.heading_path, candidate.content]))
+    normalized = normalize_text("\n".join([candidate.source_title, candidate.heading_path, candidate.content]))
+    return any(compact_text(anchor) in compact or anchor.lower() in normalized for anchor in HTTP_FETCH_CONTENT_ANCHORS)
 
 
 def with_candidate_score(candidate: SearchCandidate, score: float, scores: dict[str, float]) -> SearchCandidate:

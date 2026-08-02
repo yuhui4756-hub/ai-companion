@@ -28,6 +28,8 @@
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --limit 20 --chat-model deepseek-r1:1.5b --num-predict 320 --allow-failures
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --limit 20 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 640 --allow-failures
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --case-names "refund action,invoice email,router count,teacher no coupon,tone choices,refund paraphrase,hardware paraphrase,invoice paraphrase,content screenshot paraphrase,tone choice paraphrase" --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
+.\.venv\Scripts\python -m pytest backend\tests\test_rag_public_docs_benchmark.py -q
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-docs --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --chat-timeout-seconds 150 --num-predict 1000 --allow-failures
 ```
 
 长时间完整回答评测可按原始用例顺序分批运行，避免单次终端超时：
@@ -122,3 +124,46 @@ RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“�
 - 删除后复问：删除资料后不能召回旧片段。
 
 真实 provider 端到端测试只应在本机 UI 或本机环境里由用户自行填写 Key；不要把完整 API Key 写进 issue、日志、截图、文档或提交记录。
+
+## 公开官方文档摘要基准
+
+为了避免只在自造业务资料上报喜，新增 public-docs 基准：资料来自公开官方文档，但仓库中只保存自写短摘要和来源 URL 常量，不复制长网页正文，不包含用户隐私或真实密钥。
+
+资料来源覆盖：
+
+- React useEffect：https://react.dev/reference/react/useEffect
+- Vite 环境变量：https://vite.dev/guide/env-and-mode
+- Electron 安全：https://www.electronjs.org/docs/latest/tutorial/security
+- FastAPI TestClient：https://fastapi.tiangolo.com/tutorial/testing/
+- SQLite FTS5：https://www.sqlite.org/fts5.html
+- Ollama API：https://docs.ollama.com/api
+- DeepSeek API：https://api-docs.deepseek.com/
+- MDN Fetch API：https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
+- GitHub Actions GITHUB_TOKEN：https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication
+- Python venv：https://docs.python.org/3/library/venv.html
+- TypeScript TSConfig：https://www.typescriptlang.org/tsconfig/
+- electron-builder：https://www.electron.build/
+
+2026-08-02 public-docs 自动化检索基准：
+
+- 资料规模：12 份官方文档摘要 + 18 份相似干扰资料，共 30 份文档。
+- 切片规模：使用本地 Ollama `bge-m3` 重建向量索引后为 71 个 active chunk。
+- 问题规模：62 题，其中 50 题为 lexical/FTS、12 题为 hybrid/Ollama embedding 口语改写。
+- `backend/tests/test_rag_public_docs_benchmark.py`：4 passed，覆盖 top1 source、promptContext 必含/禁含、泛字段不注入、表格行切片、删除后不召回。
+- 旧 RAG 回归：`test_rag_quality.py`、`test_rag_realistic_benchmark.py`、`test_rag_h2_quality.py` 合计 12 passed。
+
+本轮 public-docs 发现并修复的真实问题：
+
+- 技术泛字段不够泛：用户只问 “Base URL 是什么？”、“端点是什么？”、“权限是什么？” 时，旧逻辑可能把相似资料注入。修复后这些问题需要指定来源；如果用户问 “DeepSeek API 的 Base URL 是什么？” 仍可命中目标资料。
+- 来源标题匹配过窄：用户说 “Vite/FastAPI/DeepSeek” 时，不一定会完整说出“官方摘要”。修复后会识别标题里的唯一别名或多个标题词组合，减少跨 source 混入。
+- URL 正文污染切片：把“来源 URL”直接放进知识正文会产生只有链接的弱信息 chunk。public-docs 改为在代码常量中保留来源 URL，知识正文只放摘要事实。
+- 真实向量语义过宽：`bge-m3` 曾把“浏览器请求 500 是否进 catch”拉向“浏览器存储”干扰资料。修复后 HTTP/Fetch/catch/status 类查询的向量候选必须带请求语义锚点，避免只靠“浏览器”这种大词进 prompt。
+
+2026-08-02 public-docs 端到端回答评测：
+
+- embedding：本地 Ollama `bge-m3`，不向远程发送资料片段。
+- chat：远程 OpenAI-compatible `deepseek-v4-flash`，thinking enabled；Key 只从本机环境变量读取，不写入文档、日志或仓库。
+- 探索性全量：60/62，失败包括 1 次网络超时和 1 次远程模型偶发“资料不足”；针对失败题复跑 2/2 通过。
+- HTTP/Fetch 锚点修复前全量复验：61/62，剩余失败为真实 retrieval 误召回。
+- HTTP/Fetch 锚点修复后最终全量复验：检索门 62/62，最终回答 62/62，pass rate 为 100.0%。
+- 表述边界：这是公开官方文档摘要基准上的结果，比纯合成资料更接近真实资料形态，但仍不是线上真实用户准确率；未来加入 PDF/图片/图表解析后需要重新建立对应基准。

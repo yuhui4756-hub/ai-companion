@@ -369,6 +369,49 @@ def call_chat_model(
     )
 
 
+def load_benchmark_corpus(corpus: str) -> dict[str, Any]:
+    if corpus == "public-docs":
+        from backend.tests.test_rag_public_docs_benchmark import (
+            PUBLIC_BENCHMARK_DOCUMENTS,
+            PUBLIC_HYBRID_CASES,
+            PUBLIC_LEXICAL_CASES,
+            app,
+            evaluate_public_case,
+            seed_public_documents,
+        )
+
+        return {
+            "app": app,
+            "documents": PUBLIC_BENCHMARK_DOCUMENTS,
+            "seed": seed_public_documents,
+            "evaluate": evaluate_public_case,
+            "lexical_cases": PUBLIC_LEXICAL_CASES,
+            "hybrid_cases": PUBLIC_HYBRID_CASES,
+            "lexical_suite": "public-docs/lexical-fts+ollama-auto",
+            "hybrid_suite": "public-docs/hybrid-ollama-bge-m3",
+        }
+
+    from backend.tests.test_rag_realistic_benchmark import (
+        BENCHMARK_DOCUMENTS,
+        HYBRID_CASES,
+        LEXICAL_CASES,
+        app,
+        evaluate_case,
+        seed_realistic_documents,
+    )
+
+    return {
+        "app": app,
+        "documents": BENCHMARK_DOCUMENTS,
+        "seed": seed_realistic_documents,
+        "evaluate": evaluate_case,
+        "lexical_cases": LEXICAL_CASES,
+        "hybrid_cases": HYBRID_CASES,
+        "lexical_suite": "realistic/lexical-fts+ollama-auto",
+        "hybrid_suite": "realistic/hybrid-ollama-bge-m3",
+    }
+
+
 def requested_case_names(value: str) -> set[str]:
     return {name.strip() for name in value.split(",") if name.strip()}
 
@@ -426,14 +469,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
 
         from fastapi.testclient import TestClient
 
-        from backend.tests.test_rag_realistic_benchmark import (
-            BENCHMARK_DOCUMENTS,
-            HYBRID_CASES,
-            LEXICAL_CASES,
-            app,
-            evaluate_case,
-            seed_realistic_documents,
-        )
+        corpus = load_benchmark_corpus(args.corpus)
 
         embedding_runtime = {
             "providerName": "ollama",
@@ -445,20 +481,21 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
             "enabled": True,
             "apiKey": "",
         }
-        all_cases = [("lexical/fts+ollama-auto", case) for case in LEXICAL_CASES]
-        all_cases.extend(("hybrid/ollama-bge-m3", case) for case in HYBRID_CASES)
+        all_cases = [(corpus["lexical_suite"], case) for case in corpus["lexical_cases"]]
+        all_cases.extend((corpus["hybrid_suite"], case) for case in corpus["hybrid_cases"])
         selected_cases = select_cases(all_cases, args.limit, args.case_names, args.offset, args.selection_mode)
 
         results: list[AnswerResult] = []
         try:
-            with TestClient(app) as client:
-                seed_realistic_documents(client)
+            with TestClient(corpus["app"]) as client:
+                corpus["seed"](client)
                 health = client.post("/embedding/health/check", json={"runtimeConfig": embedding_runtime})
                 reindex = client.post("/knowledge/embeddings/reindex", json={"embeddingRuntimeConfig": embedding_runtime})
                 print("# 所依 RAG Answer Benchmark")
                 print("")
                 print("本报告验证的是“检索片段注入后，本地聊天模型能否答出关键事实”，不等同于线上真实用户准确率。")
-                print(f"- corpus_documents: {len(BENCHMARK_DOCUMENTS)}")
+                print(f"- corpus: {args.corpus}")
+                print(f"- corpus_documents: {len(corpus['documents'])}")
                 print(f"- selected_cases: {len(selected_cases)}/{len(all_cases)}")
                 print(f"- chat_provider: {args.chat_provider}")
                 print(f"- chat_model: {args.chat_model}")
@@ -478,7 +515,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
                 for index, (suite, case) in enumerate(selected_cases, start=1):
                     started = time.time()
                     expectation = expectation_for(case)
-                    retrieval_failure = evaluate_case(client, case, runtime=embedding_runtime)
+                    retrieval_failure = corpus["evaluate"](client, case, runtime=embedding_runtime)
                     search = client.post(
                         "/knowledge/search",
                         json={
@@ -558,6 +595,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run end-to-end RAG answer benchmark through Ollama or OpenAI-compatible chat.")
+    parser.add_argument("--corpus", choices=("realistic", "public-docs"), default="realistic")
     parser.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
     parser.add_argument("--chat-provider", choices=("ollama", "openai-compatible"), default="ollama")
     parser.add_argument("--chat-base-url", default=DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
