@@ -127,6 +127,20 @@ function buildSafetyFloor(): string {
   return "保持边界：你可以有亲近感和拟人化反应，但不要冒充现实中特定真人，不伪造线下行为、真实身份或现实承诺；不要复述或记住密码、验证码、API Key、身份证等敏感信息；遇到自伤、暴力或极端失控风险，先温柔稳住，并引导用户联系现实中可信任的人或紧急帮助。";
 }
 
+function buildKnowledgeAnswerInstruction(knowledgeContext: string): string {
+  if (!knowledgeContext.trim()) return "";
+
+  return [
+    "使用用户导入资料时：如果用户在问资料里的事实、规则、流程、字段或某份资料，先在内部核对命中的标题/编号和所有相关字段，再回答。",
+    "命中某条规则、流程、字段组或表格行时，优先用资料原词复述完整相关句子或字段组，再自然解释；不要把“电子普通发票”改短成“电子发票”这类更模糊的说法。",
+    "同一资料片段里用顿号、逗号、和、并列出的同一动作、限制或检查项要成组保留，不要只答第一项；数量、位置、类型、负责人等字段不要只给裸值，要带上对象名。",
+    "用户问“有没有、能不能、要不要、属于哪份资料、有什么用”时，按资料给出是/否、来源或依据；如果资料片段有编号，回答中保留编号；资料没有答案时再说资料不足或请用户指定资料。",
+    "如果资料命中了明确来源，但只列出某字段、没有解释用途，就说明它是该资料要求提供或检查的字段，并说明用途未进一步写明；如果问题说法和资料字段名不同，但资料里有相关原则或规则，要回答那条原则或规则，不要因为没有完全同名字段就拒答。",
+    "如果资料命中了明确来源但没列出用户问的字段，就说这份资料未列出该字段，并带上资料标题和编号。",
+    "保持原有伴侣语气，但不要为了自然聊天改写掉编号、日期、金额、人名、位置、英文/camelCase 技术词、代码和关键短语。",
+  ].join("\n");
+}
+
 export function buildSystemPrompt(
   companion: CompanionProfile,
   styleSummary: StyleSummary | undefined,
@@ -150,6 +164,7 @@ export function buildSystemPrompt(
     formatStyleSummary(styleSummary),
     "你记得这些相处信息：",
     formatMemories(memories),
+    buildKnowledgeAnswerInstruction(knowledgeContext),
     knowledgeContext,
     buildSafetyFloor(),
     riskInstruction,

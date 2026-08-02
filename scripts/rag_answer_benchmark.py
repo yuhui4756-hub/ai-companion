@@ -231,6 +231,25 @@ def openai_compatible_json(
         raise RuntimeError(redact_sensitive(f"openai-compatible-network-error: {error}")) from error
 
 
+def build_answer_system_prompt() -> str:
+    return (
+        "你是所依知识库端到端评测助手。只能根据用户导入资料回答。"
+        "如果没有用户导入资料，或资料没有答案，或问题没有指定清楚资料来源，就回答“资料不足，需要补充或指定资料”。"
+        "不要编造，不要使用资料外常识。"
+        "回答前先在内部核对命中的资料标题、编号和所有相关字段。"
+        "命中某条规则、流程、字段组或表格行时，优先用资料原词复述完整相关句子或字段组，再自然解释。"
+        "不要把“电子普通发票”改短成“电子发票”这类更模糊的说法。"
+        "同一资料片段里用顿号、逗号、和、并列出的同一动作、限制或检查项必须成组保留，不要只答第一项。"
+        "数量、位置、类型、负责人等字段不要只给裸值，要带上对象名。"
+        "用户问“有没有、能不能、要不要、属于哪份资料、有什么用”时，按资料给出是/否、来源或依据；如果资料片段有编号，回答中保留编号。"
+        "如果资料命中了明确来源，但只列出某字段、没有解释用途，就说明它是该资料要求提供或检查的字段，并说明用途未进一步写明。"
+        "如果问题说法和资料字段名不同，但资料里有相关原则或规则，要回答那条原则或规则，不要因为没有完全同名字段就拒答。"
+        "如果资料命中了明确来源但没列出用户问的字段，就说这份资料未列出该字段，并带上资料标题和编号。"
+        "涉及“哪份资料、哪条规范、哪条话术、哪条规则”时，回答资料标题或编号，并补充资料中的关键原词。"
+        "回答要简洁，但必须保留原始编号、日期、金额、人名、位置、英文/camelCase 技术词、代码和关键短语。"
+    )
+
+
 def call_ollama_chat(
     *,
     base_url: str,
@@ -240,14 +259,7 @@ def call_ollama_chat(
     timeout_seconds: int,
     num_predict: int,
 ) -> str:
-    system_prompt = (
-        "你是所依知识库端到端评测助手。只能根据用户导入资料回答。"
-        "如果没有用户导入资料，或资料没有答案，或问题没有指定清楚资料来源，就回答“资料不足，需要补充或指定资料”。"
-        "不要编造，不要使用资料外常识。"
-        "如果资料里有多个与问题相关的步骤、限制或关键字段，必须全部覆盖，不要只答第一条。"
-        "涉及“哪份资料、哪条规范、哪条话术、哪条规则”时，回答资料标题或编号，并补充资料中的关键原词。"
-        "回答要简洁，但必须保留原始编号、日期、金额、人名、位置、代码和关键短语。"
-    )
+    system_prompt = build_answer_system_prompt()
     user_prompt = "\n\n".join(
         [
             f"用户问题：{query}",
@@ -292,14 +304,7 @@ def call_openai_compatible_chat(
     num_predict: int,
     thinking: str,
 ) -> str:
-    system_prompt = (
-        "你是所依知识库端到端评测助手。只能根据用户导入资料回答。"
-        "如果没有用户导入资料，或资料没有答案，或问题没有指定清楚资料来源，就回答“资料不足，需要补充或指定资料”。"
-        "不要编造，不要使用资料外常识。"
-        "如果资料里有多个与问题相关的步骤、限制或关键字段，必须全部覆盖，不要只答第一条。"
-        "涉及“哪份资料、哪条规范、哪条话术、哪条规则”时，回答资料标题或编号，并补充资料中的关键原词。"
-        "回答要简洁，但必须保留原始编号、日期、金额、人名、位置、代码和关键短语。"
-    )
+    system_prompt = build_answer_system_prompt()
     user_prompt = "\n\n".join(
         [
             f"用户问题：{query}",
@@ -364,7 +369,31 @@ def call_chat_model(
     )
 
 
-def select_cases(all_cases: list[tuple[str, Any]], limit: int | None) -> list[tuple[str, Any]]:
+def requested_case_names(value: str) -> set[str]:
+    return {name.strip() for name in value.split(",") if name.strip()}
+
+
+def select_cases(
+    all_cases: list[tuple[str, Any]],
+    limit: int | None,
+    case_names: str = "",
+    offset: int = 0,
+    selection_mode: str = "balanced",
+) -> list[tuple[str, Any]]:
+    requested_names = requested_case_names(case_names)
+    if requested_names:
+        selected_by_name = [(suite, case) for suite, case in all_cases if case.name in requested_names]
+        found_names = {case.name for _, case in selected_by_name}
+        missing_names = sorted(requested_names - found_names)
+        if missing_names:
+            raise ValueError(f"unknown case names: {', '.join(missing_names)}")
+        offset_cases = selected_by_name[offset:]
+        return offset_cases[:limit] if limit else offset_cases
+
+    if offset or selection_mode == "ordered":
+        offset_cases = all_cases[offset:]
+        return offset_cases[:limit] if limit else offset_cases
+
     if limit is None or limit >= len(all_cases):
         return all_cases
 
@@ -418,7 +447,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
         }
         all_cases = [("lexical/fts+ollama-auto", case) for case in LEXICAL_CASES]
         all_cases.extend(("hybrid/ollama-bge-m3", case) for case in HYBRID_CASES)
-        selected_cases = select_cases(all_cases, args.limit)
+        selected_cases = select_cases(all_cases, args.limit, args.case_names, args.offset, args.selection_mode)
 
         results: list[AnswerResult] = []
         try:
@@ -542,6 +571,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chat-timeout-seconds", type=int, default=90)
     parser.add_argument("--num-predict", type=int, default=160)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--selection-mode", choices=("balanced", "ordered"), default="balanced")
+    parser.add_argument("--case-names", default="", help="Comma-separated benchmark case names to run.")
     parser.add_argument("--max-failures", type=int, default=20)
     parser.add_argument("--output-json", default="")
     parser.add_argument(

@@ -27,6 +27,16 @@
 .\.venv\Scripts\python scripts\rag_benchmark_report.py
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --limit 20 --chat-model deepseek-r1:1.5b --num-predict 320 --allow-failures
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --limit 20 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 640 --allow-failures
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --case-names "refund action,invoice email,router count,teacher no coupon,tone choices,refund paraphrase,hardware paraphrase,invoice paraphrase,content screenshot paraphrase,tone choice paraphrase" --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
+```
+
+长时间完整回答评测可按原始用例顺序分批运行，避免单次终端超时：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --selection-mode ordered --offset 0 --limit 40 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --selection-mode ordered --offset 40 --limit 40 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --selection-mode ordered --offset 80 --limit 40 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --selection-mode ordered --offset 120 --limit 40 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
 ```
 
 ## 当前结论
@@ -69,6 +79,13 @@ RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“�
 - 更新评分器后忽略 Markdown/普通标点做窄归一化，离线重评分：133/143，pass rate 为 93.0%。
 - 人工复核剩余 10 个失败：4 个属于可接受表达但自动评分没有识别，例如用户问“有几台备用路由器”时回答“2台”，或把“截图是否含 Key”答成“截图里没有 Key”；6 个是真问题，集中在漏掉第二个关键字段、语义改写题只答部分事实、或把有答案的问题误判成资料不足。
 - 保守对外表述建议：在 36 份合成资料、143 题基准上，RAG 检索与注入保持 100.0%；接入远程 DeepSeek `deepseek-v4-flash` thinking 后，最终回答自动评分达到 93.0%，人工复核显示主要剩余问题是字段抽取漏项，而不是检索召回错误或无答案乱答。
+
+2026-08-02 增加答案生成约束后：
+
+- 约束内容：命中知识库时先核对标题/编号/相关字段；完整保留同一规则、流程、字段组或表格行；保留英文/camelCase 技术词；字段存在但用途未写明时说明边界；明确来源但缺少某字段时回答“未列出该字段”，而不是直接资料不足。
+- 上一轮剩余 10 个失败题 targeted 复验：10/10 通过，pass rate 为 100.0%。
+- 完整 143 题按 ordered 分批复验：四批分别为 40/40、40/40、40/40、23/23，合计最终回答 143/143，pass rate 为 100.0%；检索门同样 143/143，pass rate 为 100.0%。
+- 对外表述建议：在合成评测集上，通过“检索质量 + 答案生成约束”两层优化，把远程 DeepSeek 回答自动评分从 93.0% 提升到 100.0%；边界仍是合成基准，不等同于线上真实用户准确率。
 
 这组数据仍然是合成基准，不是线上真实用户准确率。后续对比远程大模型时应复用同一脚本和同一题集，优先记录：检索门、最终回答正确率、无答案收口率、漏关键事实率和平均耗时。
 
