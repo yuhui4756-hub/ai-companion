@@ -368,6 +368,19 @@ class SearchCandidate:
     score: float
 
 
+def structural_metadata_from_heading(path: list[str]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for part in path:
+        page_match = re.search(r"第\s*(\d+)\s*页|page\s*(\d+)", part, re.IGNORECASE)
+        if page_match:
+            metadata["page"] = int(page_match.group(1) or page_match.group(2))
+        row_match = re.search(r"表格\s*(\d+)\s*第\s*(\d+)\s*行", part)
+        if row_match:
+            metadata["tableIndex"] = int(row_match.group(1))
+            metadata["rowIndex"] = int(row_match.group(2))
+    return metadata
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -701,21 +714,30 @@ def parse_structured_blocks(text: str) -> list[StructuredBlock]:
     return blocks
 
 
-def make_chunk_draft(source_title: str, block: StructuredBlock) -> KnowledgeChunkDraft:
+def make_chunk_draft(
+    source_title: str,
+    block: StructuredBlock,
+    source_metadata: dict[str, Any] | None = None,
+) -> KnowledgeChunkDraft:
     heading_path = heading_path_to_text(block.heading_path)
     keywords = create_keyword_list("\n".join([source_title, heading_path, block.content]))
+    content_hash = short_content_hash("\n".join([source_title, heading_path, block.content]))
     metadata = {
+        **(source_metadata or {}),
         **block.metadata,
+        **structural_metadata_from_heading(block.heading_path),
         "sourceTitle": source_title,
         "headingPath": block.heading_path,
+        "blockType": block.chunk_type,
         "charCount": len(block.content),
+        "contentHash": content_hash,
     }
     return KnowledgeChunkDraft(
         content=block.content,
         keywords=keywords,
         heading_path=heading_path,
         chunk_type=block.chunk_type,
-        content_hash=short_content_hash("\n".join([source_title, heading_path, block.content])),
+        content_hash=content_hash,
         token_estimate=len(block.content),
         metadata=metadata,
         search_text=build_search_text(source_title, heading_path, block.content, keywords),
@@ -728,6 +750,7 @@ def chunk_text(
     source_title: str = "",
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     overlap: int = DEFAULT_CHUNK_OVERLAP,
+    source_metadata: dict[str, Any] | None = None,
 ) -> list[KnowledgeChunkDraft]:
     blocks = parse_structured_blocks(text)
     if not blocks:
@@ -738,7 +761,7 @@ def chunk_text(
     for block in blocks:
         chunk_blocks.extend(split_block(block, chunk_size, overlap))
 
-    return [make_chunk_draft(source_title, block) for block in chunk_blocks]
+    return [make_chunk_draft(source_title, block, source_metadata=source_metadata) for block in chunk_blocks]
 
 
 def _source_from_row(row: sqlite3.Row) -> KnowledgeSourceResponse:
@@ -861,6 +884,7 @@ def create_source(
     title: str,
     source_type: KnowledgeSourceType,
     content: str,
+    source_metadata: dict[str, Any] | None = None,
 ) -> KnowledgeSourceResponse:
     checksum = content_checksum(content)
     duplicate = connection.execute(
@@ -878,7 +902,7 @@ def create_source(
     source_id = f"knowledge-source-{uuid.uuid4()}"
     created_at = now_iso()
     source_title = title.strip() or "未命名资料"
-    chunks = chunk_text(content, source_title=source_title)
+    chunks = chunk_text(content, source_title=source_title, source_metadata=source_metadata)
 
     with connection:
         connection.execute(

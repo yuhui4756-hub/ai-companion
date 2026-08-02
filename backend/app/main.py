@@ -4,11 +4,12 @@ import sqlite3
 from contextlib import asynccontextmanager
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core import get_core_counts, get_core_status, load_core_snapshot, save_core_snapshot
 from .db import SCHEMA_VERSION, connect, get_db_path_label, init_db
+from .document_parsing import MAX_FILE_BYTES, DocumentParseError, parse_document_bytes
 from .embeddings import (
     check_embedding_health,
     get_embedding_status,
@@ -178,6 +179,39 @@ def post_knowledge_source(
                 "existingSourceId": error.source_id,
             },
         ) from error
+
+
+@app.post(
+    "/knowledge/import/file",
+    response_model=KnowledgeSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_knowledge_file_import(
+    file: UploadFile = File(...),
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> KnowledgeSourceResponse:
+    try:
+        raw = file.file.read(MAX_FILE_BYTES + 1)
+        parsed = parse_document_bytes(file.filename, raw)
+        return create_source(
+            connection,
+            title=parsed.title,
+            source_type=parsed.source_type,
+            content=parsed.content,
+            source_metadata=parsed.metadata,
+        )
+    except DocumentParseError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    except DuplicateKnowledgeSourceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "同内容资料已存在，未重复导入。",
+                "existingSourceId": error.source_id,
+            },
+        ) from error
+    finally:
+        file.file.close()
 
 
 @app.get("/knowledge/sources", response_model=list[KnowledgeSourceResponse])

@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 class KnowledgeSourceType(str, Enum):
     manual_text = "manual_text"
     markdown = "markdown"
+    plain_text_file = "plain_text_file"
+    pdf_text = "pdf_text"
+    docx = "docx"
 
 
 class KnowledgeSourceStatus(str, Enum):

@@ -17,6 +17,7 @@
 - mock hybrid retrieval 可覆盖语义改写类问题，例如“用户要退钱时售后开头要先做什么？”应命中退款升级 SOP。
 - 类真实资料形态基准包含 12 份核心不敏感 Markdown 文档、24 份相似结构干扰文档和 143 个问题，其中 123 个问题覆盖本地 BM25/关键词检索、泛字段澄清、无关问题和大资料量干扰，20 个问题覆盖 mock hybrid 语义改写。
 - 本地 Ollama `bge-m3` 真实 embedding smoke 会在临时 SQLite 中索引同一批 36 份资料，验证本机 hybrid retrieval 在真实中文 embedding 下不会出现过召回、混源或字段值漏注入。
+- 多格式文本层基准覆盖后端 `.txt/.md/.pdf/.docx` 导入：PDF 只验证已有文本层和页码 metadata，DOCX 验证标题、段落、列表和表格行事实块，删除后不召回，泛字段/无关问题不注入。
 
 ## 运行命令
 
@@ -29,6 +30,7 @@
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --limit 20 --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 640 --allow-failures
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --case-names "refund action,invoice email,router count,teacher no coupon,tone choices,refund paraphrase,hardware paraphrase,invoice paraphrase,content screenshot paraphrase,tone choice paraphrase" --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
 .\.venv\Scripts\python -m pytest backend\tests\test_rag_public_docs_benchmark.py -q
+.\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py backend\tests\test_rag_multiformat_benchmark.py -q
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-docs --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --chat-timeout-seconds 150 --num-predict 1000 --allow-failures
 ```
 
@@ -104,7 +106,7 @@ RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“�
 - 切片是否覆盖更长、更复杂的真实文档结构。
 - 真实 embedding provider（本地 Ollama 与远程 OpenAI 兼容接口）对中文、口语改写、短查询和专有名词的表现。
 - 聊天模型是否正确使用“用户导入资料”，并在资料不足时愿意澄清。
-- 当前导入入口主要面向纯文本和 Markdown；图表、图片、扫描件、PDF/Word 等资料还需要后续解析和结构化策略。
+- 当前 UI 导入仍主要面向粘贴纯文本和 Markdown；后端 API 已补 `.txt/.md/.pdf/.docx` 文本层解析，图表、图片、扫描件和 OCR 仍需要后续策略。
 
 ## 下一轮真实数据评测建议
 
@@ -167,3 +169,27 @@ RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“�
 - HTTP/Fetch 锚点修复前全量复验：61/62，剩余失败为真实 retrieval 误召回。
 - HTTP/Fetch 锚点修复后最终全量复验：检索门 62/62，最终回答 62/62，pass rate 为 100.0%。
 - 表述边界：这是公开官方文档摘要基准上的结果，比纯合成资料更接近真实资料形态，但仍不是线上真实用户准确率；未来加入 PDF/图片/图表解析后需要重新建立对应基准。
+
+## 多格式文本层导入基准
+
+RAG-M2-A 新增后端文件解析层，目标是先覆盖真实资料里最稳定的文本层，而不是一次性承诺所有文档形态。自动化测试使用 pytest 临时目录生成短小的 PDF/DOCX/TXT/Markdown fixture，不使用用户私人文件，不复制长网页正文，也不调用真实 embedding 或聊天模型服务。
+
+当前覆盖：
+
+- `.txt/.md`：UTF-8 文本解析，文件过大、空文件、编码不支持时返回明确错误。
+- PDF：只解析已有文本层，按页生成 `## 第 N 页` heading，并把页码写入 chunk metadata；空白/扫描件 PDF 返回“当前暂不支持自动 OCR”。
+- DOCX：提取标题、段落、列表和表格行；表格一行会保留为同一个 fact block，避免把编号、预算、负责人、截止日期切散。
+- 检索：多格式导入后复用现有结构化 chunk、FTS5/BM25、mock hybrid、软删除和 prompt 注入门槛。指定来源字段题不混入其他资料，泛字段和无关问题不注入，删除后 FTS/hybrid 都不召回。
+
+运行命令：
+
+```powershell
+.\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py -q
+.\.venv\Scripts\python -m pytest backend\tests\test_rag_multiformat_benchmark.py -q
+```
+
+边界：
+
+- 当前不做 OCR、图片/图表视觉理解、PDF 扫描件解析、旧版 `.doc`、联网抓取或云解析。
+- 后端默认不保存原始上传文件，只保存解析后的文本、表格行和页码/章节等 metadata。
+- UI 文件上传入口留给后续 M2-B；当前 UI 仍以粘贴文本/Markdown 为主。

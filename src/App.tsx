@@ -132,6 +132,9 @@ const memoryVisibleActions = new Set(["create", "merge", "replace"]);
 const knowledgeSourceTypeLabels: Record<KnowledgeSourceType, string> = {
   manual_text: "文本",
   markdown: "Markdown",
+  plain_text_file: "TXT 文件",
+  pdf_text: "PDF 文本层",
+  docx: "DOCX",
 };
 type CoreStorageMode = "checking" | "localStorage" | "sqlite";
 type CoreStorageUiStatus = {

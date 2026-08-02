@@ -60,9 +60,14 @@ try {
     --hidden-import backend.app.main `
     --hidden-import backend.app.core `
     --hidden-import backend.app.db `
+    --hidden-import backend.app.document_parsing `
     --hidden-import backend.app.embeddings `
     --hidden-import backend.app.knowledge `
     --hidden-import backend.app.schemas `
+    --hidden-import multipart `
+    --hidden-import pypdf `
+    --hidden-import docx `
+    --hidden-import lxml `
     --exclude-module pytest `
     --exclude-module tests `
     backend\app\sidecar_entry.py

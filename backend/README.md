@@ -2,7 +2,7 @@
 
 这是工程化第二轮的本机 sidecar backend，负责本地 SQLite 数据、知识库切分检索和核心数据快照迁移。它不接收、不保存、不转发模型 API Key。
 
-当前 schema v4 已加入结构化知识切片、本地 FTS5/BM25 基线检索，以及默认关闭的 embedding / hybrid retrieval 最小闭环；embedding provider 支持本地 Ollama 和远程 OpenAI 兼容接口。如果运行环境不支持 FTS5，会优雅回退到本地关键词评分。低置信或只有“预算/负责人/截止日期”等泛字段的问题不会生成 `promptContext`，也不会触发 query embedding，避免把多份资料误混入聊天提示词。
+当前 schema v4 已加入结构化知识切片、本地 FTS5/BM25 基线检索、文本层文件解析，以及默认关闭的 embedding / hybrid retrieval 最小闭环；embedding provider 支持本地 Ollama 和远程 OpenAI 兼容接口。如果运行环境不支持 FTS5，会优雅回退到本地关键词评分。低置信或只有“预算/负责人/截止日期”等泛字段的问题不会生成 `promptContext`，也不会触发 query embedding，避免把多份资料误混入聊天提示词。
 
 ## 启动
 
@@ -53,6 +53,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 - `GET /health`：返回服务和 SQLite schema 状态，不返回真实密钥。
 - `GET /db/status`：返回知识库和核心数据计数，并包含 `ftsReady`、`knowledgeSearchMode`。
 - `POST /knowledge/sources`、`GET /knowledge/sources`、`DELETE /knowledge/sources/{source_id}`、`POST /knowledge/search`：2A 知识库/RAG 能力。
+- `POST /knowledge/import/file`：导入用户显式选择的 `.txt/.md/.pdf/.docx` 文件。`.txt/.md` 只接受 UTF-8 文本；PDF 仅解析已有文本层并保留页码 heading；扫描件或无文本层 PDF 会返回“当前暂不支持自动 OCR”；DOCX 会提取标题、段落、列表和表格行。后端只把解析出的结构化文本和 metadata 写入 SQLite，默认不保存原始文件副本。
 - `GET /embedding/config`、`PUT /embedding/config`、`POST /embedding/health/check`：保存去 Key 的 embedding 配置，并用运行时临时 Key 或本地 Ollama 做兼容性检查；不会把 Key 写入 SQLite。
 - `GET /knowledge/embeddings/status`、`POST /knowledge/embeddings/reindex`：查看和构建 SQLite JSON 向量索引；当前同步执行，失败时保留本地 BM25/关键词 fallback。
 - `GET /core/status`：返回核心数据 SQLite 计数和最近一次 legacy snapshot 迁移状态。
@@ -63,6 +64,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-release-candi
 ## 当前边界
 
 - 只绑定本机 `127.0.0.1` 使用，不提供云服务。
+- 文件导入大小上限为 5MB，PDF 页数上限为 80 页，解析后文本上限约 19 万字符；超限会明确拒绝，不静默截断。
+- 文件导入当前不做 OCR、图片识别、图表视觉理解、旧版 `.doc` 解析、联网抓取或云端解析。
 - 知识库 sources/chunks、伴侣、聊天、长期记忆、风格摘要和去 Key 的 provider 配置会写入 SQLite；旧 localStorage 仍保留作回退。
 - provider 配置只保存 `providerName`、`baseURL`、`model`、`options_json` 和 `api_key_ref`；明文 API Key 继续留在 renderer localStorage，不迁入 SQLite。
 - 聊天时，前端只把最新用户输入发给本机后端做知识库检索；命中的知识片段会进入模型请求，并发给用户配置的模型服务商。

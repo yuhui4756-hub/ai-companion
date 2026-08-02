@@ -201,7 +201,7 @@ export type StyleSummary = {
 };
 
 export type KnowledgeSourceStatus = "active" | "deleted";
-export type KnowledgeSourceType = "manual_text" | "markdown";
+export type KnowledgeSourceType = "manual_text" | "markdown" | "plain_text_file" | "pdf_text" | "docx";
 
 export type KnowledgeSource = {
   id: string;
