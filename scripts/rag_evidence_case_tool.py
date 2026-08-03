@@ -7,6 +7,7 @@ import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -25,6 +26,24 @@ RETRIEVAL_MODES = {"auto", "keyword", "hybrid"}
 ANSWER_EXPECTATIONS = {"fact", "clarify", "no-answer", "source-identification"}
 DEFAULT_EXCERPT_CHARS = 240
 DEFAULT_ANSWER_EXCERPT_CHARS = 600
+WORKSPACE_DIRS = ("inbox", "drafts", "reviewed", "active", "archived", "bundles", "runs", "reports")
+WORKSPACE_CASE_DIRS = ("drafts", "reviewed", "active", "archived")
+RUN_SUMMARY_VERSION = "suoyi-rag-run-summary-v1"
+WORKSPACE_README = """# 所依 RAG Case 本地工作区
+
+这个目录用于本机沉淀 RAG evidence、benchmark case、运行结果和摘要，默认不进入 Git。
+
+- `inbox/`：放 UI 导出的 `suoyi-rag-evidence-v1` JSON。
+- `drafts/`：由 evidence 转出的 draft case，默认 `safeToCommit=false`。
+- `reviewed/`：人工补全 expected 后的 case。
+- `active/`：当前纳入本地回归的小样本 case。
+- `archived/`：暂时不用或过期的 case。
+- `bundles/`：导出的 runnable JSONL。
+- `runs/`：`rag_answer_benchmark.py --output-json` 的本地运行结果。
+- `reports/`：由 `summarize-run` 生成的本地摘要。
+
+私有 evidence/case 可能包含用户问题、回答和短摘录，只能本地处理；不要把真实密钥、Cookie、扫码凭证或未脱敏用户资料提交到仓库。
+"""
 
 
 class CaseToolError(RuntimeError):
@@ -436,6 +455,122 @@ def validate_cases(cases: list[dict[str, Any]], *, require_runnable: bool = Fals
     return ValidationSummary(total=len(cases), statuses=dict(statuses))
 
 
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"invalid boolean value: {value!r}")
+
+
+def case_missing_fields(case: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    expected = case.get("expected") if isinstance(case.get("expected"), dict) else {}
+    privacy = case.get("privacy") if isinstance(case.get("privacy"), dict) else {}
+    status = case.get("status")
+    should_inject = expected.get("shouldInject")
+    needs_clarification = expected.get("needsClarification")
+    answer_expectation = expected.get("answerExpectation")
+    retrieval_mode = expected.get("retrievalMode")
+    expected_source = expected.get("expectedSourceTitle")
+    required_sources = expected.get("requiredSourceTitles") if isinstance(expected.get("requiredSourceTitles"), list) else []
+    required_facts = expected.get("requiredFacts") if isinstance(expected.get("requiredFacts"), list) else []
+
+    if status not in CASE_STATUSES:
+        missing.append("status")
+    if not isinstance(case.get("query"), str) or not case["query"].strip():
+        missing.append("query")
+    if not isinstance(should_inject, bool):
+        missing.append("expected.shouldInject")
+    if not isinstance(needs_clarification, bool):
+        missing.append("expected.needsClarification")
+    if retrieval_mode not in RETRIEVAL_MODES:
+        missing.append("expected.retrievalMode")
+    if answer_expectation not in ANSWER_EXPECTATIONS:
+        missing.append("expected.answerExpectation")
+    if should_inject is True:
+        has_source = isinstance(expected_source, str) and bool(expected_source.strip())
+        has_required_source = any(isinstance(source, str) and source.strip() for source in required_sources)
+        if not has_source and not has_required_source:
+            missing.append("expected.expectedSourceTitle")
+        if answer_expectation in {"fact", "source-identification"} and not any(
+            isinstance(fact, str) and fact.strip() for fact in required_facts
+        ):
+            missing.append("expected.requiredFacts")
+    if not isinstance(privacy.get("safeToCommit"), bool):
+        missing.append("privacy.safeToCommit")
+    if not isinstance(privacy.get("containsUserPrivateText"), bool):
+        missing.append("privacy.containsUserPrivateText")
+    return missing
+
+
+def case_is_runnable(case: dict[str, Any]) -> bool:
+    try:
+        validate_case(case, require_runnable=True)
+    except CaseToolError:
+        return False
+    return case.get("status") in RUNNABLE_STATUSES
+
+
+def workspace_case_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for dirname in WORKSPACE_CASE_DIRS:
+        directory = root / dirname
+        if directory.exists() and directory.is_dir():
+            files.extend(
+                child
+                for child in sorted(directory.iterdir())
+                if child.is_file() and child.suffix.lower() in {".json", ".jsonl"}
+            )
+    return files
+
+
+def collect_case_files(paths: Iterable[Path]) -> list[Path]:
+    files: list[Path] = []
+    for path in paths:
+        if not path.exists():
+            raise CaseToolError(f"input path does not exist: {path}")
+        if path.is_file():
+            if path.suffix.lower() not in {".json", ".jsonl"}:
+                raise CaseToolError(f"unsupported case file suffix: {path}")
+            files.append(path)
+            continue
+        if any((path / dirname).is_dir() for dirname in WORKSPACE_CASE_DIRS):
+            files.extend(workspace_case_files(path))
+        else:
+            files.extend(
+                child
+                for child in sorted(path.iterdir())
+                if child.is_file() and child.suffix.lower() in {".json", ".jsonl"}
+            )
+    if not files:
+        raise CaseToolError("no case files found")
+    return files
+
+
+def load_case_records_from_inputs(paths: Iterable[Path]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for path in collect_case_files(paths):
+        records.extend(load_cases_from_path(path))
+    return records
+
+
+def ensure_safe_to_export(cases: list[dict[str, Any]], *, allow_private_local: bool) -> None:
+    for case in cases:
+        privacy = case.get("privacy") if isinstance(case.get("privacy"), dict) else {}
+        if allow_private_local:
+            continue
+        if privacy.get("safeToCommit") is not True or privacy.get("containsUserPrivateText") is True:
+            raise CaseToolError(
+                f"{case.get('id', '<unknown>')} is not safe for default export; use --allow-private-local only for ignored local workspaces"
+            )
+
+
 def write_case_records(cases: list[dict[str, Any]], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.suffix.lower() == ".jsonl":
@@ -446,6 +581,183 @@ def write_case_records(cases: list[dict[str, Any]], output: Path) -> None:
         return
     payload: Any = cases[0] if len(cases) == 1 else cases
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def load_single_case(path: Path) -> dict[str, Any]:
+    cases = load_cases_from_path(path)
+    if len(cases) != 1:
+        raise CaseToolError(f"review expects exactly one case in {path}, got {len(cases)}")
+    return cases[0]
+
+
+def set_repeated_list(target: dict[str, Any], key: str, values: list[str] | None) -> None:
+    if values is not None:
+        target[key] = [value for value in values if value.strip()]
+
+
+def category_for_failure(failure: str) -> str:
+    lowered = failure.lower()
+    if not failure:
+        return "passed"
+    if lowered.startswith("retrieval failed"):
+        return "retrieval failed"
+    if lowered.startswith("missing required answer text"):
+        return "missing required answer text"
+    if lowered.startswith("answer leaked forbidden text"):
+        return "answer leaked forbidden text"
+    if "did not clearly say" in lowered or "insufficient" in lowered or "clarification" in lowered:
+        return "answer policy mismatch"
+    if any(marker in lowered for marker in ("empty", "timeout", "network", "http", "missing-api-key", "response", "runtime")):
+        return "model/runtime error"
+    return "other"
+
+
+def percentage(passed: int, total: int) -> float:
+    if total == 0:
+        return 0.0
+    return round(passed / total * 100, 1)
+
+
+def count_group(results: list[dict[str, Any]], key: str, pass_key: str) -> dict[str, dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for result in results:
+        label = str(result.get(key) or "unknown")
+        group = groups.setdefault(label, {"total": 0, "passed": 0, "failed": 0, "passRate": 0.0})
+        group["total"] += 1
+        if result.get(pass_key) is True:
+            group["passed"] += 1
+        else:
+            group["failed"] += 1
+    for group in groups.values():
+        group["passRate"] = percentage(int(group["passed"]), int(group["total"]))
+    return dict(sorted(groups.items()))
+
+
+def case_expectation_map(case_file: Path | None) -> tuple[dict[str, str], str | None]:
+    if case_file is None:
+        return {}, None
+    cases = load_cases_from_path(case_file)
+    validate_cases(cases, require_runnable=True)
+    mapping: dict[str, str] = {}
+    corpus_ids: set[str] = set()
+    for case in cases:
+        mapping[str(case["id"])] = str(case["expected"].get("answerExpectation") or "unknown")
+        corpus_ids.add(str(case["corpus"]["id"]))
+    corpus_id = next(iter(corpus_ids)) if len(corpus_ids) == 1 else None
+    return mapping, corpus_id
+
+
+def normalize_run_records(raw: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)], {}
+    if isinstance(raw, dict):
+        results = raw.get("results") if isinstance(raw.get("results"), list) else []
+        metadata = {key: value for key, value in raw.items() if key != "results"}
+        return [item for item in results if isinstance(item, dict)], metadata
+    raise CaseToolError("run input must be a JSON array or an object with results[]")
+
+
+def build_run_summary(run_path: Path, case_file: Path | None) -> dict[str, Any]:
+    raw = read_json_file(run_path)
+    scan_sensitive_values(raw)
+    results, run_metadata = normalize_run_records(raw)
+    expectation_by_case, corpus_from_cases = case_expectation_map(case_file)
+    total = len(results)
+    retrieval_passed = sum(1 for result in results if result.get("retrieval_passed") is True)
+    answer_passed = sum(1 for result in results if result.get("answer_passed") is True)
+    enriched_results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+
+    for result in results:
+        case_name = str(result.get("name") or "")
+        expectation = expectation_by_case.get(case_name) or str(result.get("expectation") or "unknown")
+        failure = str(result.get("failure") or "")
+        category = category_for_failure(failure)
+        enriched = {**result, "answerExpectation": expectation, "failureCategory": category}
+        enriched_results.append(enriched)
+        if failure:
+            failures.append(
+                {
+                    "name": case_name,
+                    "suite": result.get("suite"),
+                    "source": result.get("source"),
+                    "answerExpectation": expectation,
+                    "failure": truncate_text(failure, 260),
+                    "failureCategory": category,
+                    "answerExcerpt": truncate_text(result.get("answer"), 180),
+                }
+            )
+
+    failure_categories: Counter[str] = Counter(item["failureCategory"] for item in failures)
+    corpus = run_metadata.get("corpus") or corpus_from_cases
+    boundary_note = (
+        "This summary describes only the explicit local case file, selected corpus, model/runtime, and run date. "
+        "It is not an online accuracy claim and must not be presented as production user accuracy."
+    )
+    return {
+        "version": RUN_SUMMARY_VERSION,
+        "createdAt": utc_now_iso(),
+        "inputRun": str(run_path),
+        "caseFile": str(case_file) if case_file is not None else None,
+        "corpus": corpus,
+        "caseCount": total,
+        "retrievalGate": {
+            "passed": retrieval_passed,
+            "failed": total - retrieval_passed,
+            "total": total,
+            "passRate": percentage(retrieval_passed, total),
+        },
+        "answerCorrectness": {
+            "passed": answer_passed,
+            "failed": total - answer_passed,
+            "total": total,
+            "passRate": percentage(answer_passed, total),
+        },
+        "byExpectation": count_group(enriched_results, "answerExpectation", "answer_passed"),
+        "bySourceOrNegativeType": count_group(enriched_results, "source", "answer_passed"),
+        "failureCategories": dict(sorted(failure_categories.items())),
+        "failures": failures,
+        "boundaryNote": boundary_note,
+    }
+
+
+def render_run_summary_markdown(summary: dict[str, Any]) -> str:
+    lines = [
+        "# 所依 RAG Case Run Summary",
+        "",
+        f"- createdAt: {summary['createdAt']}",
+        f"- corpus: {summary.get('corpus') or 'unknown'}",
+        f"- case_file: {summary.get('caseFile') or 'not provided'}",
+        f"- case_count: {summary['caseCount']}",
+        f"- retrieval_gate_pass_rate: {summary['retrievalGate']['passed']}/{summary['retrievalGate']['total']} ({summary['retrievalGate']['passRate']}%)",
+        f"- answer_correctness_pass_rate: {summary['answerCorrectness']['passed']}/{summary['answerCorrectness']['total']} ({summary['answerCorrectness']['passRate']}%)",
+        "",
+        "## By Expectation",
+        "",
+        "| expectation | total | passed | failed | pass_rate |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for label, group in summary["byExpectation"].items():
+        lines.append(f"| {label} | {group['total']} | {group['passed']} | {group['failed']} | {group['passRate']}% |")
+    lines.extend(
+        [
+            "",
+            "## By Source Or Negative Type",
+            "",
+            "| source_or_type | total | passed | failed | pass_rate |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for label, group in summary["bySourceOrNegativeType"].items():
+        lines.append(f"| {label} | {group['total']} | {group['passed']} | {group['failed']} | {group['passRate']}% |")
+    lines.extend(["", "## Failure Categories", ""])
+    if summary["failureCategories"]:
+        for label, count in summary["failureCategories"].items():
+            lines.append(f"- {label}: {count}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Boundary", "", summary["boundaryNote"], ""])
+    return "\n".join(lines)
 
 
 def command_draft(args: argparse.Namespace) -> int:
@@ -468,31 +780,249 @@ def command_draft(args: argparse.Namespace) -> int:
 
 
 def command_validate(args: argparse.Namespace) -> int:
-    cases: list[dict[str, Any]] = []
-    for input_path in [Path(value) for value in args.input]:
-        cases.extend(load_cases_from_path(input_path))
+    cases = load_case_records_from_inputs([Path(value) for value in args.input])
     summary = validate_cases(cases, require_runnable=args.require_runnable)
     print(f"validated {summary.total} case(s); statuses={json.dumps(summary.statuses, ensure_ascii=False, sort_keys=True)}")
     return 0
 
 
 def command_to_jsonl(args: argparse.Namespace) -> int:
-    cases: list[dict[str, Any]] = []
-    for input_path in [Path(value) for value in args.input]:
-        cases.extend(load_cases_from_path(input_path))
+    cases = load_case_records_from_inputs([Path(value) for value in args.input])
     validate_cases(cases, require_runnable=True)
     runnable_cases = [case for case in cases if case["status"] in RUNNABLE_STATUSES]
     if len(runnable_cases) != len(cases):
         raise CaseToolError("to-jsonl only accepts reviewed/active cases")
+    ensure_safe_to_export(runnable_cases, allow_private_local=args.allow_private_local)
     runnable_cases.sort(key=lambda item: item["id"])
     write_case_records(runnable_cases, Path(args.output))
     print(f"wrote {len(runnable_cases)} reviewed/active case(s) -> {args.output}")
     return 0
 
 
+def command_workspace_init(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    root.mkdir(parents=True, exist_ok=True)
+    for dirname in WORKSPACE_DIRS:
+        (root / dirname).mkdir(exist_ok=True)
+    readme_path = root / "README.md"
+    if args.overwrite_readme or not readme_path.exists():
+        readme_path.write_text(WORKSPACE_README, encoding="utf-8")
+    print(f"initialized workspace -> {root}")
+    return 0
+
+
+def command_workspace_ingest(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    drafts_dir = root / "drafts"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    evidence_documents = load_evidence_files([Path(value) for value in args.input])
+    written: list[Path] = []
+    skipped: list[Path] = []
+    for source_path, evidence in evidence_documents:
+        case = draft_case_from_evidence(
+            evidence,
+            corpus_id=args.corpus_id,
+            source_policy=args.source_policy,
+            corpus_format=args.format,
+            fixture_ref=args.fixture_ref,
+            collected_from=args.collected_from,
+        )
+        output_path = drafts_dir / f"{case['id']}.json"
+        if output_path.exists() and not args.overwrite:
+            skipped.append(output_path)
+            continue
+        write_case_records([case], output_path)
+        written.append(output_path)
+        print(f"drafted {source_path} -> {output_path}")
+    print(f"workspace ingest complete: written={len(written)} skipped={len(skipped)}")
+    return 0
+
+
+def summarize_case_records(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts: Counter[str] = Counter()
+    runnable = 0
+    safe_to_commit = 0
+    private = 0
+    missing_by_case: dict[str, list[str]] = {}
+    validation_errors: dict[str, str] = {}
+    for case in cases:
+        case_id = str(case.get("id") or "<missing-id>")
+        status_counts[str(case.get("status") or "<missing>")] += 1
+        privacy = case.get("privacy") if isinstance(case.get("privacy"), dict) else {}
+        if privacy.get("safeToCommit") is True:
+            safe_to_commit += 1
+        if privacy.get("containsUserPrivateText") is True:
+            private += 1
+        missing = case_missing_fields(case)
+        if missing:
+            missing_by_case[case_id] = missing
+        try:
+            validate_case(case, require_runnable=False)
+        except CaseToolError as error:
+            validation_errors[case_id] = str(error)
+        if case_is_runnable(case):
+            runnable += 1
+    return {
+        "total": len(cases),
+        "statuses": dict(sorted(status_counts.items())),
+        "runnable": runnable,
+        "safeToCommit": safe_to_commit,
+        "containsUserPrivateText": private,
+        "missingFields": dict(sorted(missing_by_case.items())),
+        "validationErrors": dict(sorted(validation_errors.items())),
+    }
+
+
+def print_case_summary_table(summary: dict[str, Any]) -> None:
+    print("| metric | value |")
+    print("| --- | ---: |")
+    print(f"| total | {summary['total']} |")
+    print(f"| runnable | {summary['runnable']} |")
+    print(f"| safeToCommit | {summary['safeToCommit']} |")
+    print(f"| containsUserPrivateText | {summary['containsUserPrivateText']} |")
+    for status, count in summary["statuses"].items():
+        print(f"| status:{status} | {count} |")
+    if summary["missingFields"]:
+        print("\n## Missing Fields")
+        for case_id, fields in summary["missingFields"].items():
+            print(f"- {case_id}: {', '.join(fields)}")
+    if summary["validationErrors"]:
+        print("\n## Validation Errors")
+        for case_id, error in summary["validationErrors"].items():
+            print(f"- {case_id}: {error}")
+
+
+def command_list(args: argparse.Namespace) -> int:
+    cases = load_case_records_from_inputs([Path(value) for value in args.input])
+    for case in cases:
+        scan_sensitive_values(case)
+    summary = summarize_case_records(cases)
+    if args.format == "json":
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        print_case_summary_table(summary)
+    return 0
+
+
+def command_review(args: argparse.Namespace) -> int:
+    case = load_single_case(Path(args.input))
+    scan_sensitive_values(case)
+    expected = expect_object(case.get("expected"), f"{case.get('id', '<unknown>')}.expected")
+    privacy = expect_object(case.get("privacy"), f"{case.get('id', '<unknown>')}.privacy")
+    review = expect_object(case.get("review"), f"{case.get('id', '<unknown>')}.review")
+
+    if args.status:
+        case["status"] = args.status
+    if args.expected_source_title is not None:
+        expected["expectedSourceTitle"] = args.expected_source_title or None
+        if args.expected_source_title and not args.required_source_title:
+            expected["requiredSourceTitles"] = [args.expected_source_title]
+    if args.should_inject is not None:
+        expected["shouldInject"] = args.should_inject
+    if args.needs_clarification is not None:
+        expected["needsClarification"] = args.needs_clarification
+    if args.retrieval_mode:
+        expected["retrievalMode"] = args.retrieval_mode
+    if args.answer_expectation:
+        expected["answerExpectation"] = args.answer_expectation
+    set_repeated_list(expected, "requiredFacts", args.required_fact)
+    set_repeated_list(expected, "forbiddenFacts", args.forbidden_fact)
+    set_repeated_list(expected, "requiredSourceTitles", args.required_source_title)
+    set_repeated_list(expected, "forbiddenSourceTitles", args.forbidden_source_title)
+    if expected.get("shouldInject") is False:
+        expected["expectedSourceTitle"] = None
+        expected["requiredSourceTitles"] = []
+
+    if args.safe_to_commit is not None:
+        privacy["safeToCommit"] = args.safe_to_commit
+    if args.contains_user_private_text is not None:
+        privacy["containsUserPrivateText"] = args.contains_user_private_text
+    privacy["apiKeyIncluded"] = False
+    privacy["fullKnowledgeChunkIncluded"] = False
+    privacy.setdefault("redactions", [])
+
+    if args.reviewed_by is not None:
+        review["reviewedBy"] = args.reviewed_by
+    if args.notes is not None:
+        review["notes"] = args.notes
+    if case.get("status") in RUNNABLE_STATUSES:
+        review["reviewedAt"] = args.reviewed_at or utc_now_iso()
+        origin = expect_object(case.get("origin"), f"{case.get('id', '<unknown>')}.origin")
+        origin["redactionStatus"] = args.redaction_status or "reviewed"
+
+    validate_case(case)
+    output_path = Path(args.output)
+    if output_path.exists() and output_path.resolve() != Path(args.input).resolve() and not args.overwrite:
+        raise CaseToolError(f"output exists; pass --overwrite to replace: {output_path}")
+    write_case_records([case], output_path)
+    print(f"reviewed {case['id']} -> {output_path}")
+    return 0
+
+
+def command_summarize_run(args: argparse.Namespace) -> int:
+    case_file = Path(args.case_file) if args.case_file else None
+    summary = build_run_summary(Path(args.input), case_file)
+    if args.output_json:
+        output_json = Path(args.output_json)
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"summary_json: {output_json}")
+    if args.output_md:
+        output_md = Path(args.output_md)
+        output_md.parent.mkdir(parents=True, exist_ok=True)
+        output_md.write_text(render_run_summary_markdown(summary), encoding="utf-8")
+        print(f"summary_md: {output_md}")
+    if not args.output_json and not args.output_md:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Convert suoyi RAG evidence JSON into benchmark case drafts.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    workspace_init_parser = subparsers.add_parser("workspace-init", help="Create a local ignored RAG case workspace.")
+    workspace_init_parser.add_argument("--root", default=".suoyi-rag-cases")
+    workspace_init_parser.add_argument("--overwrite-readme", action="store_true")
+    workspace_init_parser.set_defaults(func=command_workspace_init)
+
+    workspace_ingest_parser = subparsers.add_parser("workspace-ingest", help="Convert evidence JSON files into workspace drafts.")
+    workspace_ingest_parser.add_argument("--root", default=".suoyi-rag-cases")
+    workspace_ingest_parser.add_argument("--input", action="append", required=True, help="Evidence JSON file or directory.")
+    workspace_ingest_parser.add_argument("--corpus-id", default="local-private")
+    workspace_ingest_parser.add_argument("--source-policy", choices=("synthetic", "public-summary", "user-private-local"), default="user-private-local")
+    workspace_ingest_parser.add_argument("--format", default="evidence-json")
+    workspace_ingest_parser.add_argument("--fixture-ref", default="")
+    workspace_ingest_parser.add_argument("--collected-from", default="workspace-inbox")
+    workspace_ingest_parser.add_argument("--overwrite", action="store_true")
+    workspace_ingest_parser.set_defaults(func=command_workspace_ingest)
+
+    list_parser = subparsers.add_parser("list", help="List case status and missing-field counts.")
+    list_parser.add_argument("--input", action="append", required=True, help="Workspace root, case directory, JSON, or JSONL.")
+    list_parser.add_argument("--format", choices=("table", "json"), default="table")
+    list_parser.set_defaults(func=command_list)
+
+    review_parser = subparsers.add_parser("review", help="Non-interactively update a draft/reviewed case.")
+    review_parser.add_argument("--input", required=True, help="Input case JSON containing exactly one case.")
+    review_parser.add_argument("--output", required=True, help="Output case JSON path.")
+    review_parser.add_argument("--status", choices=sorted(CASE_STATUSES))
+    review_parser.add_argument("--expected-source-title")
+    review_parser.add_argument("--required-source-title", action="append")
+    review_parser.add_argument("--forbidden-source-title", action="append")
+    review_parser.add_argument("--required-fact", action="append")
+    review_parser.add_argument("--forbidden-fact", action="append")
+    review_parser.add_argument("--answer-expectation", choices=sorted(ANSWER_EXPECTATIONS))
+    review_parser.add_argument("--retrieval-mode", choices=sorted(RETRIEVAL_MODES))
+    review_parser.add_argument("--should-inject", type=parse_bool)
+    review_parser.add_argument("--needs-clarification", type=parse_bool)
+    review_parser.add_argument("--safe-to-commit", type=parse_bool)
+    review_parser.add_argument("--contains-user-private-text", type=parse_bool)
+    review_parser.add_argument("--reviewed-by")
+    review_parser.add_argument("--reviewed-at")
+    review_parser.add_argument("--redaction-status")
+    review_parser.add_argument("--notes")
+    review_parser.add_argument("--overwrite", action="store_true")
+    review_parser.set_defaults(func=command_review)
 
     draft_parser = subparsers.add_parser("draft", help="Convert evidence JSON exports into draft benchmark cases.")
     draft_parser.add_argument("--input", action="append", required=True, help="Evidence JSON file or directory of JSON files.")
@@ -516,7 +1046,19 @@ def build_parser() -> argparse.ArgumentParser:
     jsonl_parser = subparsers.add_parser("to-jsonl", help="Merge reviewed/active case JSON files into JSONL.")
     jsonl_parser.add_argument("--input", action="append", required=True, help="Case JSON/JSONL file or directory.")
     jsonl_parser.add_argument("--output", required=True, help="Output JSONL path.")
+    jsonl_parser.add_argument(
+        "--allow-private-local",
+        action="store_true",
+        help="Allow safeToCommit=false/private reviewed cases in an ignored local bundle.",
+    )
     jsonl_parser.set_defaults(func=command_to_jsonl)
+
+    summary_parser = subparsers.add_parser("summarize-run", help="Summarize rag_answer_benchmark --output-json results.")
+    summary_parser.add_argument("--input", required=True, help="Run JSON from rag_answer_benchmark.py --output-json.")
+    summary_parser.add_argument("--case-file", default="", help="Optional reviewed/active case JSONL used by the run.")
+    summary_parser.add_argument("--output-json", default="")
+    summary_parser.add_argument("--output-md", default="")
+    summary_parser.set_defaults(func=command_summarize_run)
     return parser
 
 

@@ -1,0 +1,35 @@
+[
+  {
+    "suite": "public-multiformat/case-file",
+    "name": "evidence-20260803-react-cleanup-001",
+    "expectation": "inject",
+    "source": "React useEffect 多格式摘要",
+    "retrieval_passed": true,
+    "answer_passed": true,
+    "failure": "",
+    "answer": "React 会先用旧值运行 cleanup，再用新值运行 setup。",
+    "elapsed_seconds": 1.2
+  },
+  {
+    "suite": "public-multiformat/case-file",
+    "name": "evidence-20260803-generic-base-url-001",
+    "expectation": "clarify",
+    "source": "clarify",
+    "retrieval_passed": true,
+    "answer_passed": false,
+    "failure": "answer did not clearly say the knowledge base is insufficient or needs clarification",
+    "answer": "Base URL 是 https://example.test。",
+    "elapsed_seconds": 1.5
+  },
+  {
+    "suite": "public-multiformat/case-file",
+    "name": "evidence-20260803-fetch-http-001",
+    "expectation": "inject",
+    "source": "MDN Fetch API 多格式摘要",
+    "retrieval_passed": true,
+    "answer_passed": false,
+    "failure": "missing required answer text ['response.ok']",
+    "answer": "500 不一定进入 catch。",
+    "elapsed_seconds": 1.7
+  }
+]

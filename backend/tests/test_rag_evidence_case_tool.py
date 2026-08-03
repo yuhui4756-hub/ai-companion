@@ -11,6 +11,7 @@ from backend.tests.rag_case_loader import load_benchmark_cases
 from scripts.rag_answer_benchmark import select_cases
 from scripts.rag_evidence_case_tool import (
     CaseToolError,
+    build_run_summary,
     draft_case_from_evidence,
     load_cases_from_path,
     load_evidence_files,
@@ -22,10 +23,23 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 EVIDENCE_ROOT = FIXTURE_ROOT / "rag_evidence"
 CASE_ROOT = FIXTURE_ROOT / "rag_evidence_cases"
 SYNTHETIC_CASES = CASE_ROOT / "synthetic_cases.jsonl"
+RUN_ROOT = FIXTURE_ROOT / "rag_case_runs"
+SYNTHETIC_RUN = RUN_ROOT / "synthetic_run.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def run_case_tool(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "scripts/rag_evidence_case_tool.py", *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def test_draft_case_from_evidence_defaults_to_private_unreviewed() -> None:
@@ -127,39 +141,154 @@ def test_loader_rejects_draft_cases_by_default(tmp_path: Path) -> None:
 
 
 def test_cli_validate_and_to_jsonl(tmp_path: Path) -> None:
-    validate_result = subprocess.run(
-        [
-            sys.executable,
-            "scripts/rag_evidence_case_tool.py",
-            "validate",
-            "--input",
-            str(SYNTHETIC_CASES),
-            "--require-runnable",
-        ],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        capture_output=True,
-        check=False,
+    validate_result = run_case_tool(
+        "validate",
+        "--input",
+        str(SYNTHETIC_CASES),
+        "--require-runnable",
     )
     assert validate_result.returncode == 0, validate_result.stderr
     assert "validated 3 case(s)" in validate_result.stdout
 
     output_path = tmp_path / "merged.jsonl"
-    jsonl_result = subprocess.run(
-        [
-            sys.executable,
-            "scripts/rag_evidence_case_tool.py",
-            "to-jsonl",
-            "--input",
-            str(SYNTHETIC_CASES),
-            "--output",
-            str(output_path),
-        ],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        capture_output=True,
-        check=False,
+    jsonl_result = run_case_tool(
+        "to-jsonl",
+        "--input",
+        str(SYNTHETIC_CASES),
+        "--output",
+        str(output_path),
     )
     assert jsonl_result.returncode == 0, jsonl_result.stderr
     assert output_path.exists()
     assert len(output_path.read_text(encoding="utf-8").strip().splitlines()) == 3
+
+
+def test_workspace_ingest_review_list_and_private_export_gate(tmp_path: Path) -> None:
+    workspace = tmp_path / ".suoyi-rag-cases"
+
+    init_result = run_case_tool("workspace-init", "--root", str(workspace))
+    assert init_result.returncode == 0, init_result.stderr
+    for dirname in ("inbox", "drafts", "reviewed", "active", "archived", "bundles", "runs", "reports"):
+        assert (workspace / dirname).is_dir()
+    assert (workspace / "README.md").exists()
+
+    ingest_result = run_case_tool(
+        "workspace-ingest",
+        "--root",
+        str(workspace),
+        "--input",
+        str(EVIDENCE_ROOT),
+        "--corpus-id",
+        "public-multiformat",
+        "--source-policy",
+        "public-summary",
+        "--format",
+        "public-multiformat",
+        "--fixture-ref",
+        "backend/tests/test_rag_multiformat_public_docs_benchmark.py",
+    )
+    assert ingest_result.returncode == 0, ingest_result.stderr
+    draft_files = sorted((workspace / "drafts").glob("*.json"))
+    assert len(draft_files) == 3
+
+    list_result = run_case_tool("list", "--input", str(workspace), "--format", "json")
+    assert list_result.returncode == 0, list_result.stderr
+    summary = json.loads(list_result.stdout)
+    assert summary["total"] == 3
+    assert summary["statuses"] == {"draft": 3}
+    assert summary["runnable"] == 0
+    assert summary["safeToCommit"] == 0
+    assert summary["containsUserPrivateText"] == 3
+
+    react_draft = next(
+        path
+        for path in draft_files
+        if load_cases_from_path(path)[0]["expected"]["expectedSourceTitle"] == "React useEffect 多格式摘要"
+    )
+    reviewed_path = workspace / "reviewed" / react_draft.name
+    review_result = run_case_tool(
+        "review",
+        "--input",
+        str(react_draft),
+        "--output",
+        str(reviewed_path),
+        "--status",
+        "reviewed",
+        "--expected-source-title",
+        "React useEffect 多格式摘要",
+        "--required-fact",
+        "先用旧值运行 cleanup",
+        "--required-fact",
+        "再用新值运行 setup",
+        "--forbidden-fact",
+        "VITE_",
+        "--answer-expectation",
+        "fact",
+        "--retrieval-mode",
+        "auto",
+        "--reviewed-by",
+        "pytest",
+        "--safe-to-commit",
+        "false",
+        "--contains-user-private-text",
+        "true",
+    )
+    assert review_result.returncode == 0, review_result.stderr
+    reviewed_case = load_cases_from_path(reviewed_path)[0]
+    validate_cases([reviewed_case], require_runnable=True)
+    assert reviewed_case["privacy"]["safeToCommit"] is False
+    assert reviewed_case["privacy"]["containsUserPrivateText"] is True
+
+    bundle_path = workspace / "bundles" / "private.jsonl"
+    blocked_export = run_case_tool(
+        "to-jsonl",
+        "--input",
+        str(workspace / "reviewed"),
+        "--output",
+        str(bundle_path),
+    )
+    assert blocked_export.returncode == 2
+    assert not bundle_path.exists()
+
+    local_export = run_case_tool(
+        "to-jsonl",
+        "--input",
+        str(workspace / "reviewed"),
+        "--output",
+        str(bundle_path),
+        "--allow-private-local",
+    )
+    assert local_export.returncode == 0, local_export.stderr
+    assert len(bundle_path.read_text(encoding="utf-8").strip().splitlines()) == 1
+
+
+def test_summarize_run_outputs_metrics_and_boundary(tmp_path: Path) -> None:
+    summary = build_run_summary(SYNTHETIC_RUN, SYNTHETIC_CASES)
+
+    assert summary["version"] == "suoyi-rag-run-summary-v1"
+    assert summary["caseCount"] == 3
+    assert summary["corpus"] == "public-multiformat"
+    assert summary["retrievalGate"]["passRate"] == 100.0
+    assert summary["answerCorrectness"]["passRate"] == 33.3
+    assert summary["byExpectation"]["fact"]["total"] == 2
+    assert summary["byExpectation"]["clarify"]["total"] == 1
+    assert summary["failureCategories"]["missing required answer text"] == 1
+    assert "not an online accuracy claim" in summary["boundaryNote"]
+
+    output_json = tmp_path / "summary.json"
+    output_md = tmp_path / "summary.md"
+    cli_result = run_case_tool(
+        "summarize-run",
+        "--input",
+        str(SYNTHETIC_RUN),
+        "--case-file",
+        str(SYNTHETIC_CASES),
+        "--output-json",
+        str(output_json),
+        "--output-md",
+        str(output_md),
+    )
+    assert cli_result.returncode == 0, cli_result.stderr
+    written = json.loads(output_json.read_text(encoding="utf-8"))
+    assert written["answerCorrectness"]["passed"] == 1
+    assert "retrieval_gate_pass_rate: 3/3 (100.0%)" in output_md.read_text(encoding="utf-8")

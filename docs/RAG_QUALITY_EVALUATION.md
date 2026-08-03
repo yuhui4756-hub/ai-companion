@@ -153,12 +153,20 @@ RAG-M4-A 增加 `scripts/rag_evidence_case_tool.py`，把 UI 导出的单条回�
 推荐本地流程：
 
 ```powershell
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py workspace-init --root .suoyi-rag-cases
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py workspace-ingest --root .suoyi-rag-cases --input .suoyi-rag-cases\inbox --corpus-id local-private
 .\.venv\Scripts\python scripts\rag_evidence_case_tool.py draft --input .\path\to\suoyi-rag-evidence.json --output .suoyi-rag-cases\drafts\case.json
 .\.venv\Scripts\python scripts\rag_evidence_case_tool.py validate --input .suoyi-rag-cases\drafts\case.json
-.\.venv\Scripts\python scripts\rag_evidence_case_tool.py to-jsonl --input .suoyi-rag-cases\reviewed --output .suoyi-rag-cases\reviewed-cases.jsonl
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py list --input .suoyi-rag-cases --format table
 ```
 
 草稿 case 使用 `suoyi-rag-benchmark-case-v1`。工具会自动填入 query、检索模式、top source、短摘录、metadata 和隐私初始状态；`requiredFacts`、`forbiddenFacts`、`requiredSourceTitles` 等期望字段必须由人工补全或确认。默认草稿为 `status=draft`、`safeToCommit=false`、`containsUserPrivateText=true`，不能计入正式通过率，也不应直接提交到仓库。
+
+可以用非交互式 `review` 命令补字段和切换状态，避免手改大段 JSON：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py review --input .suoyi-rag-cases\drafts\case.json --output .suoyi-rag-cases\reviewed\case.json --status reviewed --expected-source-title "资料标题" --required-fact "必须答出的事实" --forbidden-fact "不能混入的事实" --answer-expectation fact --retrieval-mode auto --reviewed-by local --safe-to-commit false --contains-user-private-text true
+```
 
 已人工复核的 case 可以标记为 `reviewed` 或 `active`，并用现有回答评测入口运行：
 
@@ -168,6 +176,21 @@ RAG-M4-A 增加 `scripts/rag_evidence_case_tool.py`，把 UI 导出的单条回�
 ```
 
 `--case-file` 只接受 `reviewed/active` 且 expected 字段完整的 case，并要求 case 的 `corpus.id` 与 `--corpus` 一致。回答评测仍会按所选 corpus 重新 seed 临时 SQLite，再执行检索、可选 embedding reindex 和聊天模型评分；如果本地 Ollama 或远程聊天模型不可用，这一步可能失败，不影响 case 转换工具本身。
+
+`to-jsonl` 默认只导出 `reviewed/active`、expected 完整且 `safeToCommit=true`、不含用户私有文本的 case，适合生成可提交的公开/合成 fixture bundle。私有本地工作区如果要临时跑本机回归，必须显式加 `--allow-private-local`，并把输出放在已忽略的 `.suoyi-rag-cases/bundles/`：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py to-jsonl --input .suoyi-rag-cases\reviewed --input .suoyi-rag-cases\active --output .suoyi-rag-cases\bundles\private-reviewed-cases.jsonl --allow-private-local
+```
+
+回答评测完成后，可把 `scripts/rag_answer_benchmark.py --output-json` 的结果转成保守摘要：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-multiformat --case-file backend\tests\fixtures\rag_evidence_cases\synthetic_cases.jsonl --output-json .suoyi-rag-cases\runs\synthetic-run.json --allow-failures
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py summarize-run --input .suoyi-rag-cases\runs\synthetic-run.json --case-file backend\tests\fixtures\rag_evidence_cases\synthetic_cases.jsonl --output-json .suoyi-rag-cases\reports\synthetic-summary.json --output-md .suoyi-rag-cases\reports\synthetic-summary.md
+```
+
+摘要字段包括 `caseCount`、`retrievalGate.passRate`、`answerCorrectness.passRate`、按 `answerExpectation` 分组、按 source/negative type 分组、失败类型和边界声明。`retrievalGate` 对应现有检索门和 prompt 注入门，包括 top source、shouldInject、needsClarification、promptContext 必含/禁含等；`answerCorrectness` 对应当前评分器对 required/forbidden facts 的判断。任何摘要都必须标注 corpus、case file、题数、模型/运行环境和日期，不能写成线上真实准确率。
 
 安全边界：
 
