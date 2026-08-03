@@ -4,7 +4,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def get_db_path() -> Path:
@@ -95,6 +95,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             companion_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
+            json TEXT NOT NULL DEFAULT '{}',
             sort_order INTEGER NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -145,6 +146,7 @@ def init_db(connection: sqlite3.Connection) -> None:
     )
     ensure_knowledge_v3_schema(connection)
     ensure_embedding_v4_schema(connection)
+    ensure_core_v5_schema(connection)
     connection.execute(
         """
         INSERT INTO app_meta(key, value, updated_at)
@@ -276,3 +278,7 @@ def ensure_embedding_v4_schema(connection: sqlite3.Connection) -> None:
             ON knowledge_embeddings(source_id, status);
         """
     )
+
+
+def ensure_core_v5_schema(connection: sqlite3.Connection) -> None:
+    add_column_if_missing(connection, "messages", "json", "TEXT NOT NULL DEFAULT '{}'")

@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from backend.app.core import load_core_snapshot
+from backend.app.db import init_db
 from backend.app.main import app
 
 
@@ -17,7 +19,7 @@ def test_health_initializes_sqlite(tmp_path: Path, monkeypatch) -> None:
     data = response.json()
     assert data["status"] == "ok"
     assert data["dbReady"] is True
-    assert data["schemaVersion"] == 4
+    assert data["schemaVersion"] == 5
     assert not str(tmp_path) in data["dbPath"]
 
 
@@ -235,3 +237,113 @@ def test_put_core_snapshot_replaces_runtime_snapshot(tmp_path: Path, monkeypatch
         snapshot = client.get("/core/snapshot").json()
         assert snapshot["messagesByCompanionId"].get("companion-a", []) == []
         assert [memory["id"] for memory in snapshot["memories"]] == ["memory-a"]
+
+
+def test_core_snapshot_preserves_message_knowledge_trace(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "suoyi.sqlite"
+    monkeypatch.setenv("SUOYI_BACKEND_DB_PATH", str(db_path))
+    payload = {
+        "snapshotVersion": "core-snapshot-v1",
+        "activeCompanionId": "companion-trace",
+        "providerConfigWithoutApiKey": {
+            "providerName": "Fake Provider",
+            "baseURL": "https://example.test/v1",
+            "model": "fake-model",
+        },
+        "companions": [
+            {
+                "id": "companion-trace",
+                "name": "Trace",
+                "relationshipType": "light_romance",
+                "traitIds": [],
+                "createdAt": "2026-08-03T00:00:00Z",
+                "updatedAt": "2026-08-03T00:00:00Z",
+            }
+        ],
+        "messagesByCompanionId": {
+            "companion-trace": [
+                {
+                    "id": "message-trace",
+                    "role": "assistant",
+                    "content": "星蓝计划预算是 2.8 万元。",
+                    "createdAt": "2026-08-03T00:01:00Z",
+                    "knowledgeTrace": {
+                        "mode": "hybrid",
+                        "shouldInject": True,
+                        "needsClarification": False,
+                        "embeddingUsed": True,
+                        "hits": [
+                            {
+                                "sourceId": "knowledge-source-trace",
+                                "sourceTitle": "星蓝计划",
+                                "chunkIndex": 1,
+                                "content": "编号 XLP-2026-041；预算 2.8 万元；负责人 陈星。",
+                                "score": 0.91,
+                                "headingPath": "项目档案 > 星蓝计划",
+                                "chunkType": "fact_block",
+                                "scores": {"lexical": 0.72, "vector": 0.88},
+                                "metadata": {"sourceFormat": "docx", "fileName": "trace.docx", "tableIndex": 0, "rowIndex": 2},
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+        "memories": [],
+        "styleSummaries": [],
+    }
+
+    with TestClient(app) as client:
+        saved = client.put("/core/snapshot", json=payload)
+        assert saved.status_code == 200
+
+        snapshot = client.get("/core/snapshot")
+        assert snapshot.status_code == 200
+        message = snapshot.json()["messagesByCompanionId"]["companion-trace"][0]
+        assert message["knowledgeTrace"]["mode"] == "hybrid"
+        assert message["knowledgeTrace"]["hits"][0]["sourceId"] == "knowledge-source-trace"
+        assert message["knowledgeTrace"]["hits"][0]["metadata"]["rowIndex"] == 2
+        assert "_sortOrder" not in message
+
+    with sqlite3.connect(db_path) as connection:
+        stored_json = connection.execute("SELECT json FROM messages WHERE id = ?", ("message-trace",)).fetchone()[0]
+    stored_message = json.loads(stored_json)
+    assert stored_message["knowledgeTrace"]["hits"][0]["sourceTitle"] == "星蓝计划"
+    assert "_sortOrder" not in stored_message
+
+
+def test_core_v5_migrates_legacy_messages_without_json_column(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute(
+            """
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                companion_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO messages(id, companion_id, role, content, sort_order, created_at)
+            VALUES('legacy-message', 'legacy-companion', 'assistant', '旧消息仍应可读。', 0, '2026-08-03T00:02:00Z')
+            """
+        )
+        init_db(connection)
+
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(messages)").fetchall()}
+        assert "json" in columns
+
+        snapshot = load_core_snapshot(connection)
+        message = snapshot.messagesByCompanionId["legacy-companion"][0]
+        assert message == {
+            "id": "legacy-message",
+            "role": "assistant",
+            "content": "旧消息仍应可读。",
+            "createdAt": "2026-08-03T00:02:00Z",
+        }

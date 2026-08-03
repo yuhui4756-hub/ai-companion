@@ -116,6 +116,12 @@ def _normalize_message(companion_id: str, message: dict[str, Any], sort_order: i
     return sanitized
 
 
+def _message_json_for_storage(message: dict[str, Any]) -> str:
+    stored = dict(message)
+    stored.pop("_sortOrder", None)
+    return stable_json(stored)
+
+
 def sanitize_core_snapshot(snapshot: CoreSnapshot) -> CoreSnapshot:
     provider_config = _sanitize_provider_config(snapshot.providerConfigWithoutApiKey)
     companions = [
@@ -241,12 +247,13 @@ def _upsert_messages(connection: sqlite3.Connection, messages_by_companion_id: d
         for message in messages:
             connection.execute(
                 """
-                INSERT INTO messages(id, companion_id, role, content, sort_order, created_at)
-                VALUES(?, ?, ?, ?, ?, ?)
+                INSERT INTO messages(id, companion_id, role, content, json, sort_order, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     companion_id = excluded.companion_id,
                     role = excluded.role,
                     content = excluded.content,
+                    json = excluded.json,
                     sort_order = excluded.sort_order,
                     created_at = excluded.created_at
                 """,
@@ -255,6 +262,7 @@ def _upsert_messages(connection: sqlite3.Connection, messages_by_companion_id: d
                     companion_id,
                     message["role"],
                     message["content"],
+                    _message_json_for_storage(message),
                     int(message.get("_sortOrder", 0)),
                     message["createdAt"],
                 ),
@@ -388,9 +396,16 @@ def load_core_snapshot(connection: sqlite3.Connection) -> CoreSnapshot:
     ]
     messages_by_companion_id: dict[str, list[dict[str, Any]]] = {}
     for row in connection.execute(
-        "SELECT id, companion_id, role, content, created_at FROM messages ORDER BY companion_id ASC, sort_order ASC, created_at ASC"
+        "SELECT id, companion_id, role, content, created_at, json FROM messages ORDER BY companion_id ASC, sort_order ASC, created_at ASC"
     ).fetchall():
-        messages_by_companion_id.setdefault(row["companion_id"], []).append(
+        try:
+            message = json.loads(row["json"])
+        except (TypeError, json.JSONDecodeError):
+            message = {}
+        if not isinstance(message, dict):
+            message = {}
+        message.pop("_sortOrder", None)
+        message.update(
             {
                 "id": row["id"],
                 "role": row["role"],
@@ -398,6 +413,7 @@ def load_core_snapshot(connection: sqlite3.Connection) -> CoreSnapshot:
                 "createdAt": row["created_at"],
             }
         )
+        messages_by_companion_id.setdefault(row["companion_id"], []).append(message)
     memories = [
         json.loads(row["json"])
         for row in connection.execute("SELECT json FROM memories ORDER BY sort_order ASC, updated_at DESC").fetchall()

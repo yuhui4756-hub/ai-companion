@@ -554,6 +554,8 @@ export default function App() {
     content: "",
   });
   const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
+  const [focusedKnowledgeSourceId, setFocusedKnowledgeSourceId] = useState<string | null>(null);
+  const [focusedKnowledgeChunkIndex, setFocusedKnowledgeChunkIndex] = useState<number | null>(null);
   const [knowledgeActionMessage, setKnowledgeActionMessage] = useState("");
   const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
   const [isKnowledgeImporting, setIsKnowledgeImporting] = useState(false);
@@ -911,6 +913,14 @@ export default function App() {
       return [...current, makeMessage("assistant", reconnectMessage)];
     });
   }, [activeCompanion, messages, shouldShowOnboarding, isSending, isAssistantTyping, isRomanceReconnectSuppressed]);
+  useEffect(() => {
+    if (activeView !== "knowledge" || !focusedKnowledgeSourceId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.getElementById(`knowledge-source-${focusedKnowledgeSourceId}`);
+      element?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView, focusedKnowledgeSourceId, visibleKnowledgeSources.length]);
 
   async function loadKnowledgeSourcesFromBackend() {
     setIsKnowledgeLoading(true);
@@ -1606,6 +1616,13 @@ export default function App() {
     } catch (error) {
       setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
     }
+  }
+
+  function focusKnowledgeSourceFromTrace(hit: KnowledgeTraceHit) {
+    setFocusedKnowledgeSourceId(hit.sourceId);
+    setFocusedKnowledgeChunkIndex(hit.chunkIndex);
+    setActiveView("knowledge");
+    setKnowledgeActionMessage(`已定位到引用来源《${hit.sourceTitle}》片段 ${hit.chunkIndex + 1}。`);
   }
 
   function clearChat() {
@@ -2362,7 +2379,15 @@ export default function App() {
                               {message.knowledgeTrace.hits.map((hit) => (
                                 <article className="knowledge-trace-hit" key={`${message.id}-${hit.sourceId}-${hit.chunkIndex}`}>
                                   <div className="knowledge-trace-title">
-                                    <strong>{hit.sourceTitle}</strong>
+                                    <button
+                                      className="knowledge-trace-source-button"
+                                      type="button"
+                                      onClick={() => focusKnowledgeSourceFromTrace(hit)}
+                                      title="在知识库中定位来源"
+                                    >
+                                      <FileText size={13} />
+                                      <strong>{hit.sourceTitle}</strong>
+                                    </button>
                                     <span>片段 {hit.chunkIndex + 1}</span>
                                   </div>
                                   <div className="knowledge-trace-meta">
@@ -3608,8 +3633,13 @@ export default function App() {
                     <div className="knowledge-list">
                       {visibleKnowledgeSources.map((source) => {
                         const isDeleted = source.status === "deleted";
+                        const isFocused = source.id === focusedKnowledgeSourceId;
                         return (
-                          <article className={isDeleted ? "knowledge-card inactive" : "knowledge-card"} key={source.id}>
+                          <article
+                            id={`knowledge-source-${source.id}`}
+                            className={`${isDeleted ? "knowledge-card inactive" : "knowledge-card"}${isFocused ? " focused" : ""}`}
+                            key={source.id}
+                          >
                             <div className="knowledge-card-row">
                               <div>
                                 <strong>{source.title}</strong>
@@ -3624,6 +3654,12 @@ export default function App() {
                               <span>创建 {formatLocalDateTime(source.createdAt)}</span>
                               <span>更新 {formatLocalDateTime(source.updatedAt)}</span>
                             </div>
+                            {isFocused && focusedKnowledgeChunkIndex !== null && (
+                              <div className="knowledge-focus-note">
+                                <BookOpen size={14} />
+                                <span>聊天引用 · 片段 {focusedKnowledgeChunkIndex + 1}</span>
+                              </div>
+                            )}
                             <button
                               className="icon-button danger"
                               type="button"
