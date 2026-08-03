@@ -234,6 +234,39 @@ async function requestJSON<T>(path: string, init?: RequestInit, timeoutMs = DEFA
   }
 }
 
+async function requestFormData<T>(path: string, formData: FormData, timeoutMs = 15000): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${pythonBackendBaseURL}${path}`, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+      const parsed = parseErrorPayload(payload);
+      throw new PythonBackendError(response.status === 409 ? "duplicate" : "request", parsed.message, {
+        status: response.status,
+        existingSourceId: parsed.existingSourceId,
+      });
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof PythonBackendError) throw error;
+    throw new PythonBackendError("unavailable", getErrorMessage(error));
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function getPythonCoreStatus(): Promise<CoreStatus> {
   return requestJSON<CoreStatus>("/core/status", { method: "GET" });
 }
@@ -310,6 +343,12 @@ export function importPythonKnowledgeSource(payload: {
     },
     5000,
   );
+}
+
+export function importPythonKnowledgeFile(file: File): Promise<PythonKnowledgeSource> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return requestFormData<PythonKnowledgeSource>("/knowledge/import/file", formData, 20000);
 }
 
 export function deletePythonKnowledgeSource(sourceId: string): Promise<{ id: string; status: KnowledgeSourceStatus; deletedChunkCount: number }> {

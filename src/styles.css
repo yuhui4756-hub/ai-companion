@@ -998,6 +998,90 @@ select:focus {
   gap: 14px;
 }
 
+.knowledge-file-import {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid #d8e4e8;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.knowledge-form-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #304852;
+}
+
+.knowledge-form-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-file-picker {
+  display: grid;
+  grid-template-columns: minmax(120px, 148px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.knowledge-file-picker .ghost-button {
+  width: 100%;
+}
+
+.knowledge-file-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.knowledge-file-summary.empty {
+  display: flex;
+  color: #526d78;
+}
+
+.knowledge-file-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.knowledge-file-summary strong,
+.knowledge-file-summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-file-summary span,
+.knowledge-format-note {
+  color: #6d7d86;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.knowledge-file-summary .icon-button {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.knowledge-file-submit {
+  width: 100%;
+}
+
+.knowledge-format-note {
+  margin: 0;
+}
+
 .embedding-settings {
   display: grid;
   gap: 12px;
@@ -1866,6 +1950,10 @@ label {
   .embedding-preset-grid,
   .embedding-config-grid,
   .embedding-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-file-picker {
     grid-template-columns: 1fr;
   }
 

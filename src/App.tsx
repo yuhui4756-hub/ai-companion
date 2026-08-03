@@ -68,6 +68,7 @@ import {
   getPythonCoreStatus,
   getPythonKnowledgeEmbeddingStatus,
   importLocalStorageCoreSnapshot,
+  importPythonKnowledgeFile,
   importPythonKnowledgeSource,
   listPythonKnowledgeSources,
   PythonBackendError,
@@ -136,6 +137,9 @@ const knowledgeSourceTypeLabels: Record<KnowledgeSourceType, string> = {
   pdf_text: "PDF 文本层",
   docx: "DOCX",
 };
+const knowledgeFileAccept = ".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const maxKnowledgeFileBytes = 5 * 1024 * 1024;
+const supportedKnowledgeFileExtensions = [".txt", ".md", ".markdown", ".pdf", ".docx"];
 type CoreStorageMode = "checking" | "localStorage" | "sqlite";
 type CoreStorageUiStatus = {
   mode: CoreStorageMode;
@@ -345,6 +349,20 @@ function formatLocalDateTime(value: string): string {
   });
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getKnowledgeFileValidationMessage(file: File): string {
+  const lowerName = file.name.toLowerCase();
+  const isSupported = supportedKnowledgeFileExtensions.some((extension) => lowerName.endsWith(extension));
+  if (!isSupported) return "仅支持 .txt、.md、.markdown、.pdf、.docx 文件。";
+  if (file.size > maxKnowledgeFileBytes) return "文件过大，本轮最多支持 5MB 的文本层资料。";
+  return "";
+}
+
 function getCompanionAvatarText(companion: CompanionProfile): string {
   const displayName = companionDisplayName(companion);
   return displayName.slice(0, 1).toUpperCase();
@@ -444,6 +462,7 @@ export default function App() {
     sourceType: "manual_text" as KnowledgeSourceType,
     content: "",
   });
+  const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
   const [knowledgeActionMessage, setKnowledgeActionMessage] = useState("");
   const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
   const [isKnowledgeImporting, setIsKnowledgeImporting] = useState(false);
@@ -491,6 +510,7 @@ export default function App() {
   const [isDesktopWindowMaximized, setIsDesktopWindowMaximized] = useState(false);
   const responseSequenceRef = useRef(0);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null);
   const coreStorageModeRef = useRef<CoreStorageMode>("checking");
   const isHydratingCoreSnapshotRef = useRef(false);
   const isSyncingCoreSnapshotRef = useRef(false);
@@ -1410,6 +1430,65 @@ export default function App() {
         content: "",
       });
       setKnowledgeActionMessage(`已写入 SQLite：《${source.title}》，生成 ${source.chunkCount} 个本地切片。`);
+      await loadKnowledgeSourcesFromBackend();
+      await refreshEmbeddingMetadata();
+    } catch (error) {
+      setKnowledgeActionMessage(getKnowledgeBackendErrorMessage(error));
+    } finally {
+      setIsKnowledgeImporting(false);
+    }
+  }
+
+  function clearKnowledgeFileSelection() {
+    setKnowledgeFile(null);
+    if (knowledgeFileInputRef.current) {
+      knowledgeFileInputRef.current.value = "";
+    }
+  }
+
+  function handleKnowledgeFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setKnowledgeActionMessage("");
+    if (!file) {
+      setKnowledgeFile(null);
+      return;
+    }
+
+    const validationMessage = getKnowledgeFileValidationMessage(file);
+    if (validationMessage) {
+      setKnowledgeFile(null);
+      setKnowledgeActionMessage(validationMessage);
+      event.currentTarget.value = "";
+      return;
+    }
+
+    setKnowledgeFile(file);
+  }
+
+  async function handleImportKnowledgeFile() {
+    if (!knowledgeFile) {
+      setKnowledgeActionMessage("请先选择要导入的资料文件。");
+      return;
+    }
+    const validationMessage = getKnowledgeFileValidationMessage(knowledgeFile);
+    if (validationMessage) {
+      setKnowledgeActionMessage(validationMessage);
+      return;
+    }
+    if (!knowledgeBackendHealth.available) {
+      setKnowledgeActionMessage("本地 Python 后端未运行，不能导入知识库。请先按 backend/README.md 启动服务。");
+      return;
+    }
+
+    setIsKnowledgeImporting(true);
+    try {
+      const source = await importPythonKnowledgeFile(knowledgeFile);
+      clearKnowledgeFileSelection();
+      setKnowledgeActionMessage(
+        `已从文件写入 SQLite：《${source.title}》，生成 ${source.chunkCount} 个本地切片。${
+          embeddingConfig.enabled ? " 如需向量检索覆盖新资料，请重建索引。" : ""
+        }`,
+      );
       await loadKnowledgeSourcesFromBackend();
       await refreshEmbeddingMetadata();
     } catch (error) {
@@ -3272,7 +3351,68 @@ export default function App() {
                       关闭时聊天只用本机 BM25/关键词；开启 Ollama 本地向量不会发送资料到外网，开启远程向量才会发送 active 资料切片和当前问题。Embedding Key 与聊天模型 Key 分开保存。
                     </p>
                   </div>
+                  <div className="knowledge-file-import">
+                    <div className="knowledge-form-heading">
+                      <FileText size={17} />
+                      <strong>文件导入</strong>
+                    </div>
+                    <div className="knowledge-file-picker">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => knowledgeFileInputRef.current?.click()}
+                        disabled={isKnowledgeImporting}
+                      >
+                        <Upload size={16} />
+                        选择文件
+                      </button>
+                      <input
+                        ref={knowledgeFileInputRef}
+                        className="sr-only"
+                        type="file"
+                        accept={knowledgeFileAccept}
+                        onChange={handleKnowledgeFileChange}
+                      />
+                      <div className={knowledgeFile ? "knowledge-file-summary" : "knowledge-file-summary empty"}>
+                        {knowledgeFile ? (
+                          <>
+                            <div>
+                              <strong>{knowledgeFile.name}</strong>
+                              <span>{formatFileSize(knowledgeFile.size)}</span>
+                            </div>
+                            <button
+                              className="icon-button"
+                              type="button"
+                              onClick={clearKnowledgeFileSelection}
+                              disabled={isKnowledgeImporting}
+                              title="移除已选文件"
+                            >
+                              <X size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <span>支持 TXT、Markdown、PDF 文本层、DOCX；单个文件最多 5MB。</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      className="primary-button knowledge-file-submit"
+                      type="button"
+                      onClick={handleImportKnowledgeFile}
+                      disabled={!knowledgeBackendHealth.available || isKnowledgeImporting || !knowledgeFile}
+                    >
+                      <Upload size={17} />
+                      {isKnowledgeImporting ? "导入中" : "导入文件到 SQLite"}
+                    </button>
+                    <p className="knowledge-format-note">
+                      PDF 需要已有文本层；扫描件、图片、图表视觉内容和旧版 .doc 暂不导入。原始文件不会保存，只保存解析文本和页码/表格 metadata。
+                    </p>
+                  </div>
                   <form className="knowledge-form" onSubmit={handleImportKnowledge}>
+                    <div className="knowledge-form-heading">
+                      <PenLine size={17} />
+                      <strong>粘贴文本</strong>
+                    </div>
                     <label>
                       标题
                       <input
