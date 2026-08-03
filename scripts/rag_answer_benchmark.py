@@ -384,6 +384,27 @@ def call_chat_model(
 
 
 def load_benchmark_corpus(corpus: str) -> dict[str, Any]:
+    if corpus == "public-m4c":
+        from backend.tests.test_rag_public_m4c_benchmark import (
+            PUBLIC_M4C_BENCHMARK_FIXTURES,
+            PUBLIC_M4C_HYBRID_CASES,
+            PUBLIC_M4C_LEXICAL_CASES,
+            app,
+            evaluate_public_m4c_case,
+            seed_public_m4c_files,
+        )
+
+        return {
+            "app": app,
+            "documents": PUBLIC_M4C_BENCHMARK_FIXTURES,
+            "seed": seed_public_m4c_files,
+            "evaluate": evaluate_public_m4c_case,
+            "lexical_cases": PUBLIC_M4C_LEXICAL_CASES,
+            "hybrid_cases": PUBLIC_M4C_HYBRID_CASES,
+            "lexical_suite": "public-m4c/lexical-fts+ollama-auto",
+            "hybrid_suite": "public-m4c/hybrid-ollama-bge-m3",
+        }
+
     if corpus == "public-multiformat":
         from backend.tests.test_rag_multiformat_public_docs_benchmark import (
             PUBLIC_MULTIFORMAT_BENCHMARK_FIXTURES,
@@ -638,7 +659,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run end-to-end RAG answer benchmark through Ollama or OpenAI-compatible chat.")
-    parser.add_argument("--corpus", choices=("realistic", "public-docs", "public-multiformat"), default="realistic")
+    parser.add_argument("--corpus", choices=("realistic", "public-docs", "public-multiformat", "public-m4c"), default="realistic")
     parser.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
     parser.add_argument("--chat-provider", choices=("ollama", "openai-compatible"), default="ollama")
     parser.add_argument("--chat-base-url", default=DEFAULT_OPENAI_COMPATIBLE_BASE_URL)

@@ -323,3 +323,30 @@ RAG-M2-D 在 M2-C 的同一批多格式公开资料上继续评测最终回答�
 - 初始严格评分为 58/59，唯一失败是用户问题已经包含 `OpenAI compatible`，模型回答了真正被问的 `/chat/completions`，但没有重复该上下文词。评分器已修正为：如果缺失词已经出现在用户问题中，且模型答出了其他关键事实，则不视为错误。修正后同一题单独复验通过，全量复验为 59/59。
 
 对外表述建议：可以说“在 24 份公开官方摘要多格式文件、59 题端到端基准上，本地 bge-m3 hybrid 检索门 100.0%，远程 DeepSeek 最终回答自动评分 100.0%”。必须同时说明：这是公开摘要和文本层文件基准，不等同于用户真实私有资料、扫描件/OCR/图片图表或线上全场景准确率。
+
+## M4-C 公开/合成评测集
+
+RAG-M4-C 新增独立 `public-m4c` corpus，用来沉淀可提交、可复跑的公开摘要/合成 benchmark case。它不读取用户真实聊天、Electron `userData`、本机 SQLite 或私有知识库，不抓取网页，也不复制整篇第三方文档正文；仓库中只保存自写短摘要、合成干扰资料和来源 URL / accessedAt 元数据。
+
+当前覆盖：
+
+- 语料规模：9 份核心公开官方主题摘要 + 10 份相似干扰资料，共 19 份文件。
+- 主题范围：React `useEffect`、React `You Might Not Need an Effect`、MDN Fetch、MDN `Response.ok`、MDN `Window.fetch`、SQLite FTS5、FastAPI `UploadFile`、Electron `contextIsolation`、Python `sqlite3`。
+- 文件格式：Markdown、TXT、文本层 PDF、DOCX；PDF/DOCX fixture 在 pytest 中本地生成。
+- case 规模：`backend/tests/fixtures/rag_evidence_cases/public_m4c_cases.jsonl` 固定 42 条 `suoyi-rag-benchmark-case-v1` runnable case，均为 `safeToCommit=true`、`containsUserPrivateText=false`。
+- case 类型：明确事实、函数/字段名、相似来源混淆、mock hybrid 语义改写、泛字段澄清、无关 no-answer，以及删除后不召回边界。
+- 指标拆分：`summarize-run` 输出 `retrievalGate`、`answerCorrectness`、`byExpectation`、`bySourceOrNegativeType` 和 `failureCategories`，并附带边界声明。
+
+运行命令：
+
+```powershell
+.\.venv\Scripts\python -m pytest backend\tests\test_rag_public_m4c_benchmark.py -q
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py validate --input backend\tests\fixtures\rag_evidence_cases\public_m4c_cases.jsonl --require-runnable
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-m4c --case-file backend\tests\fixtures\rag_evidence_cases\public_m4c_cases.jsonl --output-json .suoyi-rag-cases\runs\public-m4c-smoke.json --allow-failures
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py summarize-run --input .suoyi-rag-cases\runs\public-m4c-smoke.json --case-file backend\tests\fixtures\rag_evidence_cases\public_m4c_cases.jsonl --output-json .suoyi-rag-cases\reports\public-m4c-summary.json --output-md .suoyi-rag-cases\reports\public-m4c-summary.md
+```
+
+推荐简历表述：
+
+- 可以写：构建 `public-m4c` 公开摘要/合成 RAG benchmark corpus，覆盖 19 份 Markdown/TXT/PDF/DOCX 文本层资料和 42 条 reviewed/active case，将检索命中、prompt 注入门控、最终回答评分与失败分类统一接入可复跑脚本。
+- 必须带边界：该指标只代表指定公开摘要/合成语料、指定模型/运行环境和指定日期的本地评测结果，不等同于线上真实用户资料准确率，也不覆盖扫描件 OCR、图片图表理解或未导入资料。

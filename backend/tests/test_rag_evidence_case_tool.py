@@ -23,6 +23,7 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 EVIDENCE_ROOT = FIXTURE_ROOT / "rag_evidence"
 CASE_ROOT = FIXTURE_ROOT / "rag_evidence_cases"
 SYNTHETIC_CASES = CASE_ROOT / "synthetic_cases.jsonl"
+PUBLIC_M4C_CASES = CASE_ROOT / "public_m4c_cases.jsonl"
 RUN_ROOT = FIXTURE_ROOT / "rag_case_runs"
 SYNTHETIC_RUN = RUN_ROOT / "synthetic_run.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -121,6 +122,20 @@ def test_validate_synthetic_reviewed_cases_and_load_benchmark_cases() -> None:
     assert loaded[1].needs_clarification is True
     assert loaded[2].retrieval_mode == "hybrid"
     assert selected[0][1].name == "evidence-20260803-react-cleanup-001"
+
+
+def test_validate_public_m4c_reviewed_cases_and_load_benchmark_cases() -> None:
+    cases = load_cases_from_path(PUBLIC_M4C_CASES)
+
+    summary = validate_cases(cases, require_runnable=True)
+    loaded = load_benchmark_cases(PUBLIC_M4C_CASES, corpus_id="public-m4c")
+
+    assert summary.total == 42
+    assert summary.statuses["active"] == 42
+    assert len(loaded) == 42
+    assert loaded[0].name == "public-m4c-react-effect-cleanup-order"
+    assert loaded[-1].retrieval_mode == "hybrid"
+    assert sum(1 for case in loaded if case.expected_source is None) >= 6
 
 
 def test_loader_rejects_draft_cases_by_default(tmp_path: Path) -> None:
