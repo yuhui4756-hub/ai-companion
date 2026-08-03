@@ -292,6 +292,9 @@ EXTRA_FACT_LABELS = (
     "边界",
     "数据库位置",
     "回滚入口",
+    "项目",
+    "建议",
+    "原因",
 )
 FACT_LABELS = tuple(dict.fromkeys([label for labels in FIELD_SYNONYMS.values() for label in labels] + list(EXTRA_FACT_LABELS)))
 FACT_LABEL_PATTERN = re.compile(

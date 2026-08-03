@@ -120,13 +120,7 @@ def parse_pdf_document(filename: str, data: bytes) -> ParsedDocument:
         raise DocumentParseError(f"PDF 页数超过本轮上限 {MAX_PDF_PAGES} 页，请拆分后再导入。", status_code=413)
 
     title = title_from_filename(filename)
-    parts = [
-        f"# {title}",
-        "## 文件信息",
-        "来源格式：PDF 文本层",
-        f"文件名：{filename}",
-        f"页数：{page_count}",
-    ]
+    parts = [f"# {title}"]
     extracted_pages = 0
     for index, page in enumerate(reader.pages, start=1):
         try:
@@ -240,7 +234,7 @@ def parse_docx_document(filename: str, data: bytes) -> ParsedDocument:
 
     title = title_from_filename(filename)
     blocks = iter_docx_blocks(document)
-    content = "\n\n".join([f"# {title}", *blocks]).strip()
+    content = "\n".join([f"# {title}", *blocks]).strip()
     ensure_parsed_text_budget(content)
     return ParsedDocument(
         title=title,

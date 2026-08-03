@@ -18,6 +18,7 @@
 - 类真实资料形态基准包含 12 份核心不敏感 Markdown 文档、24 份相似结构干扰文档和 143 个问题，其中 123 个问题覆盖本地 BM25/关键词检索、泛字段澄清、无关问题和大资料量干扰，20 个问题覆盖 mock hybrid 语义改写。
 - 本地 Ollama `bge-m3` 真实 embedding smoke 会在临时 SQLite 中索引同一批 36 份资料，验证本机 hybrid retrieval 在真实中文 embedding 下不会出现过召回、混源或字段值漏注入。
 - 多格式文本层基准覆盖后端 `.txt/.md/.pdf/.docx` 导入：PDF 只验证已有文本层和页码 metadata，DOCX 验证标题、段落、列表和表格行事实块，删除后不召回，泛字段/无关问题不注入。
+- 多格式公开资料基准把公开官方文档摘要做成 Markdown/TXT/PDF/DOCX 文件导入，验证文件解析、结构化切片、FTS/BM25、mock hybrid、metadata、表格行和删除后不召回可以在更接近真实文件形态的资料上复用。
 
 ## 运行命令
 
@@ -31,6 +32,7 @@
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --case-names "refund action,invoice email,router count,teacher no coupon,tone choices,refund paraphrase,hardware paraphrase,invoice paraphrase,content screenshot paraphrase,tone choice paraphrase" --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --num-predict 1000 --allow-failures
 .\.venv\Scripts\python -m pytest backend\tests\test_rag_public_docs_benchmark.py -q
 .\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py backend\tests\test_rag_multiformat_benchmark.py -q
+.\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py backend\tests\test_rag_multiformat_public_docs_benchmark.py -q
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-docs --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --chat-timeout-seconds 150 --num-predict 1000 --allow-failures
 ```
 
@@ -193,3 +195,23 @@ RAG-M2-A 新增后端文件解析层，目标是先覆盖真实资料里最稳�
 - 当前不做 OCR、图片/图表视觉理解、PDF 扫描件解析、旧版 `.doc`、联网抓取或云解析。
 - 后端默认不保存原始上传文件，只保存解析后的文本、表格行和页码/章节等 metadata。
 - M2-B 已把文件上传入口接入“知识”面板；上传仍只走文本层解析，不保存原始文件副本。
+
+## 多格式公开资料基准
+
+RAG-M2-C 把 public-docs 的思路迁移到真实文件入口：资料仍来自公开官方文档，但仓库中只保存自写短摘要和来源 URL 常量；导入路径改为 `/knowledge/import/file` multipart，覆盖 Markdown、TXT、文本层 PDF 和 DOCX，不使用用户私人资料，不复制长网页正文，也不调用真实 embedding 或聊天模型服务。
+
+2026-08-03 M2-C 自动化检索基准：
+
+- 资料规模：10 份公开官方文档摘要 + 14 份相似干扰资料，共 24 份文件。
+- 文件格式：Markdown、TXT、文本层 PDF、DOCX；PDF/DOCX fixture 在测试中本地生成。
+- 问题规模：59 题，其中 47 题为 lexical/FTS、12 题为 mock hybrid embedding 口语改写。
+- 验证范围：top1 source、promptContext 必含/禁含、泛字段不注入、无关问题不注入、DOCX 表格行 metadata、PDF 页码 metadata、删除后不召回。
+- `backend/tests/test_document_parsing.py` + `backend/tests/test_rag_multiformat_public_docs_benchmark.py`：11 passed，1 个 Starlette/httpx deprecation warning。
+
+本轮 M2-C 发现并修复的真实问题：
+
+- PDF 文件信息污染检索：解析器之前把“来源格式/文件名/页数”等文件信息写进可检索正文，可能排在真实答案片段前面。修复后 PDF 正文只保留文档标题和文本页内容，文件名/页数继续放在 metadata。
+- DOCX 表格邻近字段容易被拆散：DOCX block 拼接改得更紧凑，表格行里的相邻字段更稳定地保持在同一结构块里。
+- 表格字段识别不够通用：新增“项目/建议/原因”事实标签，让常见说明型表格行可识别为 `fact_block`，避免只作为普通段落处理。
+
+表述边界：M2-C 证明的是多格式文本层文件在公开摘要基准上的“检索与 prompt 注入”稳定性，不是图片、图表、扫描件 OCR，也不是线上真实用户最终回答准确率。
