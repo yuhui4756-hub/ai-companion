@@ -2304,9 +2304,17 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   min-width: 0;
   font-size: 12px;
+}
+
+.knowledge-trace-header-main {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
 }
 
 .knowledge-trace-header strong {
@@ -2320,6 +2328,61 @@ body {
   font-size: 12px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.knowledge-trace-export-button,
+.knowledge-trace-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  color: #2d789a;
+  border: 1px solid rgba(92, 164, 216, 0.28);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.knowledge-trace-export-button {
+  gap: 5px;
+  padding: 4px 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.knowledge-trace-icon-button {
+  width: 26px;
+  padding: 0;
+}
+
+.knowledge-trace-export-button:hover,
+.knowledge-trace-icon-button:hover {
+  color: #0f5f9f;
+  border-color: rgba(45, 143, 216, 0.58);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.knowledge-trace-icon-button svg {
+  transition: transform 0.16s ease;
+}
+
+.knowledge-trace-icon-button.active svg {
+  transform: rotate(90deg);
+}
+
+.knowledge-trace-status,
+.message.romance .knowledge-trace-status {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  overflow-wrap: anywhere;
+  color: #187259;
+  border: 1px solid rgba(82, 184, 145, 0.34);
+  border-radius: 7px;
+  background: rgba(232, 248, 240, 0.74);
+  box-shadow: none;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .knowledge-trace-list {
@@ -2345,6 +2408,14 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: start;
+}
+
+.knowledge-trace-hit-tools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
 }
 
 .knowledge-trace-source-button {
@@ -2422,6 +2493,48 @@ body {
   box-shadow: none;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.knowledge-trace-snippet.expanded,
+.message.romance .knowledge-trace-snippet.expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.knowledge-trace-detail {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(92, 164, 216, 0.18);
+  border-radius: 8px;
+  background: rgba(241, 248, 252, 0.66);
+}
+
+.knowledge-trace-detail-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  align-items: start;
+}
+
+.knowledge-trace-detail-row span {
+  color: #5b7180;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.knowledge-trace-detail-row code {
+  min-width: 0;
+  padding: 0;
+  color: #2f4a55;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
 }
 
 textarea,

@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   FileText,
   KeyRound,
@@ -500,11 +501,149 @@ function getKnowledgeHitBadges(hit: KnowledgeTraceHit): string[] {
   return Array.from(new Set(badges.filter(Boolean)));
 }
 
+function formatKnowledgeScore(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return value.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function getKnowledgeScoreEntries(hit: KnowledgeTraceHit): Array<[string, number]> {
+  return Object.entries(hit.scores ?? {}).filter((entry): entry is [string, number] => Number.isFinite(entry[1]));
+}
+
+function formatKnowledgeDetailValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getKnowledgeMetadataEntries(hit: KnowledgeTraceHit): Array<[string, string]> {
+  return Object.entries(hit.metadata ?? {})
+    .map(([key, value]) => [key, formatKnowledgeDetailValue(value)] as [string, string])
+    .filter(([, value]) => value.trim());
+}
+
 function formatKnowledgeTraceSummary(trace: KnowledgeTrace): string {
   const parts = [getKnowledgeModeLabel(trace.mode)];
   if (trace.embeddingUsed) parts.push(trace.embeddingReady ? "向量参与" : "向量降级");
   parts.push(`已注入 ${trace.hits.length} 条`);
   return parts.join(" · ");
+}
+
+function getPreviousUserMessage(messages: ChatMessage[], assistantIndex: number): ChatMessage | undefined {
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") return messages[index];
+  }
+  return undefined;
+}
+
+function getKnowledgeTraceHitKey(messageId: string, hit: KnowledgeTraceHit): string {
+  return `${messageId}:${hit.sourceId}:${hit.chunkIndex}`;
+}
+
+function buildKnowledgeHitClipboardText(hit: KnowledgeTraceHit): string {
+  const scoreEntries = getKnowledgeScoreEntries(hit);
+  const metadataEntries = getKnowledgeMetadataEntries(hit);
+  return [
+    `来源：${hit.sourceTitle}`,
+    `Source ID：${hit.sourceId}`,
+    `片段：${hit.chunkIndex + 1}`,
+    hit.headingPath ? `章节：${hit.headingPath}` : "",
+    hit.chunkType ? `类型：${getKnowledgeChunkTypeLabel(hit.chunkType) || hit.chunkType}` : "",
+    `总分：${formatKnowledgeScore(hit.score)}`,
+    scoreEntries.length ? `分数拆解：${scoreEntries.map(([key, value]) => `${key}=${formatKnowledgeScore(value)}`).join("；")}` : "",
+    metadataEntries.length ? `Metadata：${metadataEntries.map(([key, value]) => `${key}=${value}`).join("；")}` : "",
+    `摘录：${hit.content}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildKnowledgeTraceEvidenceRecord(
+  message: ChatMessage,
+  previousUserMessage: ChatMessage | undefined,
+  companion: CompanionProfile,
+): Record<string, unknown> | null {
+  if (!message.knowledgeTrace) return null;
+  const trace = message.knowledgeTrace;
+  const topHit = trace.hits[0];
+  return {
+    version: "suoyi-rag-evidence-v1",
+    exportedAt: new Date().toISOString(),
+    companion: {
+      id: companion.id,
+      name: companionDisplayName(companion),
+    },
+    question: previousUserMessage
+      ? {
+          id: previousUserMessage.id,
+          content: previousUserMessage.content,
+          createdAt: previousUserMessage.createdAt,
+        }
+      : null,
+    answer: {
+      id: message.id,
+      content: message.content,
+      createdAt: message.createdAt,
+    },
+    summary: {
+      mode: trace.mode,
+      shouldInject: trace.shouldInject,
+      needsClarification: trace.needsClarification,
+      embeddingUsed: trace.embeddingUsed,
+      embeddingReady: trace.embeddingReady,
+      hitCount: trace.hits.length,
+      topSourceId: topHit?.sourceId ?? null,
+      topSourceTitle: topHit?.sourceTitle ?? null,
+      topChunkIndex: topHit?.chunkIndex ?? null,
+      topScore: topHit?.score ?? null,
+    },
+    trace: {
+      ...trace,
+      hits: trace.hits.map((hit) => ({
+        ...hit,
+        content: trimKnowledgeSnippet(hit.content),
+      })),
+    },
+    privacy: {
+      apiKeyIncluded: false,
+      fullKnowledgeChunkIncluded: false,
+      note: "只导出本条问答和短摘录级引用证据，不包含模型 API Key 或完整知识库原文。",
+    },
+  };
+}
+
+function downloadJsonFile(fileName: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("copy failed");
 }
 
 function trimKnowledgeSnippet(content: string): string {
@@ -556,6 +695,8 @@ export default function App() {
   const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
   const [focusedKnowledgeSourceId, setFocusedKnowledgeSourceId] = useState<string | null>(null);
   const [focusedKnowledgeChunkIndex, setFocusedKnowledgeChunkIndex] = useState<number | null>(null);
+  const [expandedKnowledgeTraceHitIds, setExpandedKnowledgeTraceHitIds] = useState<Record<string, boolean>>({});
+  const [knowledgeTraceActionMessage, setKnowledgeTraceActionMessage] = useState<{ messageId: string; text: string } | null>(null);
   const [knowledgeActionMessage, setKnowledgeActionMessage] = useState("");
   const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
   const [isKnowledgeImporting, setIsKnowledgeImporting] = useState(false);
@@ -1625,6 +1766,40 @@ export default function App() {
     setKnowledgeActionMessage(`已定位到引用来源《${hit.sourceTitle}》片段 ${hit.chunkIndex + 1}。`);
   }
 
+  function toggleKnowledgeTraceHit(messageId: string, hit: KnowledgeTraceHit) {
+    const hitKey = getKnowledgeTraceHitKey(messageId, hit);
+    setExpandedKnowledgeTraceHitIds((current) => ({
+      ...current,
+      [hitKey]: !current[hitKey],
+    }));
+  }
+
+  async function copyKnowledgeTraceHit(messageId: string, hit: KnowledgeTraceHit) {
+    try {
+      await copyTextToClipboard(buildKnowledgeHitClipboardText(hit));
+      setKnowledgeTraceActionMessage({
+        messageId,
+        text: `已复制《${hit.sourceTitle}》片段 ${hit.chunkIndex + 1} 的引用证据。`,
+      });
+    } catch {
+      setKnowledgeTraceActionMessage({
+        messageId,
+        text: "复制失败，可以展开后手动选择摘录内容。",
+      });
+    }
+  }
+
+  function exportKnowledgeTraceEvidence(message: ChatMessage, previousUserMessage: ChatMessage | undefined) {
+    const payload = buildKnowledgeTraceEvidenceRecord(message, previousUserMessage, activeCompanion);
+    if (!payload) return;
+    const safeMessageId = message.id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 12) || "message";
+    downloadJsonFile(`suoyi-rag-evidence-${new Date().toISOString().slice(0, 10)}-${safeMessageId}.json`, payload);
+    setKnowledgeTraceActionMessage({
+      messageId: message.id,
+      text: "已导出本条回答的引用评测记录 JSON。",
+    });
+  }
+
   function clearChat() {
     responseSequenceRef.current += 1;
     setCompanionMessages(activeCompanion.id, []);
@@ -1684,15 +1859,7 @@ export default function App() {
       memories,
       styleSummaries,
     });
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `suoyi-local-data-v0.6-c-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadJsonFile(`suoyi-local-data-v0.6-c-${new Date().toISOString().slice(0, 10)}.json`, payload);
     setDataActionMessage("已导出本地配置和记忆 JSON。导出文件不包含 API Key、原始聊天记录，也不包含知识库原文。");
   }
 
@@ -2356,54 +2523,138 @@ export default function App() {
                     <p>聊天会从你开口开始。想调整人设、记忆或设置，可以用上方按钮打开对应面板。</p>
                   </div>
                 ) : (
-                  messages.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`message ${message.role}${
-                        message.role === "assistant" && isLightRomanceCompanion(activeCompanion) ? " romance" : ""
-                      }`}
-                    >
-                      <span>{message.role === "user" ? "你" : companionDisplayName(activeCompanion)}</span>
-                      <div className="message-content">
-                        {splitMessageParts(message.content).map((part, index) => (
-                          <p key={`${message.id}-${index}`}>{part}</p>
-                        ))}
-                        {message.role === "assistant" && message.knowledgeTrace?.hits.length ? (
-                          <section className="knowledge-trace" aria-label="本次回答参考资料">
-                            <div className="knowledge-trace-header">
-                              <BookOpen size={14} />
-                              <strong>参考资料</strong>
-                              <span>{formatKnowledgeTraceSummary(message.knowledgeTrace)}</span>
-                            </div>
-                            <div className="knowledge-trace-list">
-                              {message.knowledgeTrace.hits.map((hit) => (
-                                <article className="knowledge-trace-hit" key={`${message.id}-${hit.sourceId}-${hit.chunkIndex}`}>
-                                  <div className="knowledge-trace-title">
-                                    <button
-                                      className="knowledge-trace-source-button"
-                                      type="button"
-                                      onClick={() => focusKnowledgeSourceFromTrace(hit)}
-                                      title="在知识库中定位来源"
-                                    >
-                                      <FileText size={13} />
-                                      <strong>{hit.sourceTitle}</strong>
-                                    </button>
-                                    <span>片段 {hit.chunkIndex + 1}</span>
-                                  </div>
-                                  <div className="knowledge-trace-meta">
-                                    {getKnowledgeHitBadges(hit).map((badge) => (
-                                      <span key={badge}>{badge}</span>
-                                    ))}
-                                  </div>
-                                  <p className="knowledge-trace-snippet">{trimKnowledgeSnippet(hit.content)}</p>
-                                </article>
-                              ))}
-                            </div>
-                          </section>
-                        ) : null}
-                      </div>
-                    </article>
-                  ))
+                  messages.map((message, messageIndex) => {
+                    const previousUserMessage =
+                      message.role === "assistant" ? getPreviousUserMessage(messages, messageIndex) : undefined;
+                    return (
+                      <article
+                        key={message.id}
+                        className={`message ${message.role}${
+                          message.role === "assistant" && isLightRomanceCompanion(activeCompanion) ? " romance" : ""
+                        }`}
+                      >
+                        <span>{message.role === "user" ? "你" : companionDisplayName(activeCompanion)}</span>
+                        <div className="message-content">
+                          {splitMessageParts(message.content).map((part, index) => (
+                            <p key={`${message.id}-${index}`}>{part}</p>
+                          ))}
+                          {message.role === "assistant" && message.knowledgeTrace?.hits.length ? (
+                            <section className="knowledge-trace" aria-label="本次回答参考资料">
+                              <div className="knowledge-trace-header">
+                                <div className="knowledge-trace-header-main">
+                                  <BookOpen size={14} />
+                                  <strong>参考资料</strong>
+                                  <span>{formatKnowledgeTraceSummary(message.knowledgeTrace)}</span>
+                                </div>
+                                <button
+                                  className="knowledge-trace-export-button"
+                                  type="button"
+                                  onClick={() => exportKnowledgeTraceEvidence(message, previousUserMessage)}
+                                  title="导出本条引用评测记录"
+                                >
+                                  <Download size={13} />
+                                  <span>导出记录</span>
+                                </button>
+                              </div>
+                              {knowledgeTraceActionMessage?.messageId === message.id && (
+                                <p className="knowledge-trace-status" aria-live="polite">
+                                  {knowledgeTraceActionMessage.text}
+                                </p>
+                              )}
+                              <div className="knowledge-trace-list">
+                                {message.knowledgeTrace.hits.map((hit) => {
+                                  const hitKey = getKnowledgeTraceHitKey(message.id, hit);
+                                  const isExpanded = Boolean(expandedKnowledgeTraceHitIds[hitKey]);
+                                  const scoreEntries = getKnowledgeScoreEntries(hit);
+                                  const metadataEntries = getKnowledgeMetadataEntries(hit);
+                                  return (
+                                    <article className="knowledge-trace-hit" key={hitKey}>
+                                      <div className="knowledge-trace-title">
+                                        <button
+                                          className="knowledge-trace-source-button"
+                                          type="button"
+                                          onClick={() => focusKnowledgeSourceFromTrace(hit)}
+                                          title="在知识库中定位来源"
+                                        >
+                                          <FileText size={13} />
+                                          <strong>{hit.sourceTitle}</strong>
+                                        </button>
+                                        <div className="knowledge-trace-hit-tools">
+                                          <span>片段 {hit.chunkIndex + 1}</span>
+                                          <button
+                                            className={`knowledge-trace-icon-button${isExpanded ? " active" : ""}`}
+                                            type="button"
+                                            onClick={() => toggleKnowledgeTraceHit(message.id, hit)}
+                                            title={isExpanded ? "收起片段详情" : "展开片段详情"}
+                                            aria-label={isExpanded ? "收起片段详情" : "展开片段详情"}
+                                          >
+                                            <ChevronRight size={14} />
+                                          </button>
+                                          <button
+                                            className="knowledge-trace-icon-button"
+                                            type="button"
+                                            onClick={() => void copyKnowledgeTraceHit(message.id, hit)}
+                                            title="复制引用证据"
+                                            aria-label="复制引用证据"
+                                          >
+                                            <Copy size={13} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="knowledge-trace-meta">
+                                        {getKnowledgeHitBadges(hit).map((badge) => (
+                                          <span key={badge}>{badge}</span>
+                                        ))}
+                                      </div>
+                                      <p className={`knowledge-trace-snippet${isExpanded ? " expanded" : ""}`}>
+                                        {hit.content}
+                                      </p>
+                                      {isExpanded && (
+                                        <div className="knowledge-trace-detail">
+                                          <div className="knowledge-trace-detail-row">
+                                            <span>Source ID</span>
+                                            <code>{hit.sourceId}</code>
+                                          </div>
+                                          {hit.headingPath && (
+                                            <div className="knowledge-trace-detail-row">
+                                              <span>章节</span>
+                                              <code>{hit.headingPath}</code>
+                                            </div>
+                                          )}
+                                          <div className="knowledge-trace-detail-row">
+                                            <span>总分</span>
+                                            <code>{formatKnowledgeScore(hit.score)}</code>
+                                          </div>
+                                          {scoreEntries.length > 0 && (
+                                            <div className="knowledge-trace-detail-row">
+                                              <span>分数拆解</span>
+                                              <code>
+                                                {scoreEntries
+                                                  .map(([key, value]) => `${key}=${formatKnowledgeScore(value)}`)
+                                                  .join(" · ")}
+                                              </code>
+                                            </div>
+                                          )}
+                                          {metadataEntries.length > 0 && (
+                                            <div className="knowledge-trace-detail-row">
+                                              <span>Metadata</span>
+                                              <code>
+                                                {metadataEntries.map(([key, value]) => `${key}=${value}`).join(" · ")}
+                                              </code>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </article>
+                                  );
+                                })}
+                              </div>
+                            </section>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })
                 )}
               </div>
 
