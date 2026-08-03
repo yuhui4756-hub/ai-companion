@@ -123,6 +123,8 @@ def grade_answer(case: Any, answer: str) -> str | None:
     missing = [text for text in case.required_text if not answer_contains_required_text(answer, text)]
     if missing and is_source_identification_answer(case, answer, missing):
         missing = []
+    if missing and is_query_context_only_missing(case, answer, missing):
+        missing = []
     if missing:
         return f"missing required answer text {missing!r}"
     leaked = [text for text in case.forbidden_text if normalize_for_match(text) in compact_answer]
@@ -138,6 +140,18 @@ def is_source_identification_answer(case: Any, answer: str, missing: list[str]) 
     source_question = any(marker in compact_query for marker in ("是哪份资料", "对应哪份资料", "哪份资料", "哪份清单", "哪份规范", "哪份说明"))
     missing_from_query = all(normalize_for_match(text) in compact_query for text in missing)
     return source_question and missing_from_query and normalize_for_match(case.expected_source) in normalize_for_match(answer)
+
+
+def is_query_context_only_missing(case: Any, answer: str, missing: list[str]) -> bool:
+    compact_query = normalize_for_match(case.query)
+    if not all(normalize_for_match(text) in compact_query for text in missing):
+        return False
+    answered_required = [
+        text
+        for text in case.required_text
+        if text not in missing and answer_contains_required_text(answer, text)
+    ]
+    return bool(answered_required)
 
 
 def grouped_rows(results: list[AnswerResult], key: str) -> list[tuple[str, int, int]]:
@@ -370,6 +384,27 @@ def call_chat_model(
 
 
 def load_benchmark_corpus(corpus: str) -> dict[str, Any]:
+    if corpus == "public-multiformat":
+        from backend.tests.test_rag_multiformat_public_docs_benchmark import (
+            PUBLIC_MULTIFORMAT_BENCHMARK_FIXTURES,
+            PUBLIC_MULTIFORMAT_HYBRID_CASES,
+            PUBLIC_MULTIFORMAT_LEXICAL_CASES,
+            app,
+            evaluate_public_multiformat_case,
+            seed_public_multiformat_files,
+        )
+
+        return {
+            "app": app,
+            "documents": PUBLIC_MULTIFORMAT_BENCHMARK_FIXTURES,
+            "seed": seed_public_multiformat_files,
+            "evaluate": evaluate_public_multiformat_case,
+            "lexical_cases": PUBLIC_MULTIFORMAT_LEXICAL_CASES,
+            "hybrid_cases": PUBLIC_MULTIFORMAT_HYBRID_CASES,
+            "lexical_suite": "public-multiformat/lexical-fts+ollama-auto",
+            "hybrid_suite": "public-multiformat/hybrid-ollama-bge-m3",
+        }
+
     if corpus == "public-docs":
         from backend.tests.test_rag_public_docs_benchmark import (
             PUBLIC_BENCHMARK_DOCUMENTS,
@@ -443,7 +478,7 @@ def select_cases(
     selected: list[tuple[str, Any]] = []
     buckets: dict[str, list[tuple[str, Any]]] = {"hybrid": [], "clarify": [], "no-answer": [], "inject": []}
     for suite, case in all_cases:
-        if suite.startswith("hybrid"):
+        if suite.startswith("hybrid") or "/hybrid" in suite:
             buckets["hybrid"].append((suite, case))
         elif case.needs_clarification:
             buckets["clarify"].append((suite, case))
@@ -595,7 +630,7 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run end-to-end RAG answer benchmark through Ollama or OpenAI-compatible chat.")
-    parser.add_argument("--corpus", choices=("realistic", "public-docs"), default="realistic")
+    parser.add_argument("--corpus", choices=("realistic", "public-docs", "public-multiformat"), default="realistic")
     parser.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL)
     parser.add_argument("--chat-provider", choices=("ollama", "openai-compatible"), default="ollama")
     parser.add_argument("--chat-base-url", default=DEFAULT_OPENAI_COMPATIBLE_BASE_URL)

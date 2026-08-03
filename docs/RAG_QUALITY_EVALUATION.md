@@ -34,6 +34,7 @@
 .\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py backend\tests\test_rag_multiformat_benchmark.py -q
 .\.venv\Scripts\python -m pytest backend\tests\test_document_parsing.py backend\tests\test_rag_multiformat_public_docs_benchmark.py -q
 .\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-docs --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --chat-timeout-seconds 150 --num-predict 1000 --allow-failures
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-multiformat --chat-provider openai-compatible --chat-base-url https://api.deepseek.com --chat-model deepseek-v4-flash --chat-thinking enabled --chat-timeout-seconds 150 --num-predict 1000 --allow-failures
 ```
 
 长时间完整回答评测可按原始用例顺序分批运行，避免单次终端超时：
@@ -215,3 +216,22 @@ RAG-M2-C 把 public-docs 的思路迁移到真实文件入口：资料仍来自�
 - 表格字段识别不够通用：新增“项目/建议/原因”事实标签，让常见说明型表格行可识别为 `fact_block`，避免只作为普通段落处理。
 
 表述边界：M2-C 证明的是多格式文本层文件在公开摘要基准上的“检索与 prompt 注入”稳定性，不是图片、图表、扫描件 OCR，也不是线上真实用户最终回答准确率。
+
+## 多格式公开资料端到端回答评测
+
+RAG-M2-D 在 M2-C 的同一批多格式公开资料上继续评测最终回答正确率：先通过本地 Ollama `bge-m3` 建索引与检索，再把 promptContext 交给远程 OpenAI-compatible `deepseek-v4-flash` 生成答案。API Key 只从本机环境变量读取，不写入文档、日志、SQLite、测试 fixture 或提交记录。
+
+2026-08-03 M2-D 端到端结果：
+
+- 语料：10 份公开官方文档摘要 + 14 份相似干扰资料，共 24 份文件。
+- 格式：Markdown、TXT、文本层 PDF、DOCX。
+- 切片/索引：68 个 active chunk，本地 Ollama `bge-m3` embedding health 通过并完成 reindex。
+- 问题：59 题，其中 47 题 lexical/FTS，12 题 hybrid/Ollama embedding 口语改写；包含 53 个应注入题、4 个澄清题、2 个无答案题。
+- 检索门：59/59 通过，pass rate 为 100.0%。
+- 最终回答：59/59 通过，pass rate 为 100.0%；lexical/FTS 为 47/47，hybrid 为 12/12。
+
+本轮 M2-D 发现的评测口径问题：
+
+- 初始严格评分为 58/59，唯一失败是用户问题已经包含 `OpenAI compatible`，模型回答了真正被问的 `/chat/completions`，但没有重复该上下文词。评分器已修正为：如果缺失词已经出现在用户问题中，且模型答出了其他关键事实，则不视为错误。修正后同一题单独复验通过，全量复验为 59/59。
+
+对外表述建议：可以说“在 24 份公开官方摘要多格式文件、59 题端到端基准上，本地 bge-m3 hybrid 检索门 100.0%，远程 DeepSeek 最终回答自动评分 100.0%”。必须同时说明：这是公开摘要和文本层文件基准，不等同于用户真实私有资料、扫描件/OCR/图片图表或线上全场景准确率。
