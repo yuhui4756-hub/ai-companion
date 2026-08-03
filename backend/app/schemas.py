@@ -60,6 +60,7 @@ class KnowledgeHitResponse(BaseModel):
     headingPath: str = ""
     chunkType: str = "paragraph"
     scores: dict[str, float] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SearchKnowledgeRequest(BaseModel):

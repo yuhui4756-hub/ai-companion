@@ -232,6 +232,30 @@ export type KnowledgeHit = {
 
 export type KnowledgeRetrievalMode = "auto" | "keyword" | "hybrid";
 
+export type KnowledgeTraceHit = {
+  sourceId: string;
+  sourceTitle: string;
+  chunkIndex: number;
+  content: string;
+  score: number;
+  headingPath?: string;
+  chunkType?: string;
+  scores?: Record<string, number>;
+  metadata?: Record<string, unknown>;
+};
+
+export type KnowledgeTrace = {
+  mode?: string;
+  shouldInject: boolean;
+  needsClarification: boolean;
+  reason?: string;
+  ftsReady?: boolean;
+  embeddingUsed?: boolean;
+  embeddingReady?: boolean;
+  embeddingReason?: string;
+  hits: KnowledgeTraceHit[];
+};
+
 export type EmbeddingProviderLocalConfig = {
   providerName: string;
   baseURL: string;
@@ -330,6 +354,7 @@ export type ChatMessage = {
   role: Exclude<ChatRole, "system">;
   content: string;
   createdAt: string;
+  knowledgeTrace?: KnowledgeTrace;
 };
 
 export type OpenAIChatMessage = {

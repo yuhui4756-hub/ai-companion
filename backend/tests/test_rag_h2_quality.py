@@ -272,6 +272,7 @@ def test_h2_field_query_prefers_structured_fact_over_vector_topic(tmp_path: Path
                     content="说明：硬件巡检覆盖会议室投屏、备用路由器和直播麦克风。",
                     heading_path="硬件巡检概览 / 范围",
                     chunk_type="paragraph",
+                    metadata={},
                     cosine=0.92,
                 )
             ],

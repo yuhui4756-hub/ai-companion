@@ -2262,6 +2262,118 @@ body {
     0 10px 22px rgba(166, 91, 124, 0.08);
 }
 
+.knowledge-trace {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  overflow: hidden;
+  color: #2f4a55;
+  border: 1px solid rgba(92, 164, 216, 0.26);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.knowledge-trace-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.knowledge-trace-header strong {
+  color: #236f91;
+  font-size: 12px;
+}
+
+.knowledge-trace-header span {
+  min-width: 0;
+  color: #5b7180;
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-trace-list {
+  display: grid;
+  gap: 8px;
+}
+
+.knowledge-trace-hit {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(92, 164, 216, 0.18);
+}
+
+.knowledge-trace-hit:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.knowledge-trace-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.knowledge-trace-title strong {
+  min-width: 0;
+  color: #213c49;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-trace-title span {
+  color: #6d7d86;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.knowledge-trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.knowledge-trace-meta span {
+  max-width: 100%;
+  padding: 2px 6px;
+  color: #526d78;
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  background: rgba(224, 239, 248, 0.74);
+}
+
+.knowledge-trace-snippet,
+.message.romance .knowledge-trace-snippet {
+  display: -webkit-box;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #4d616b;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 textarea,
 input,
 select {

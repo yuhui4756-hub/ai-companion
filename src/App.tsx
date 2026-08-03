@@ -81,6 +81,7 @@ import {
   type CoreStatus,
   type PythonBackendHealth,
   type PythonKnowledgeEmbeddingStatus,
+  type PythonKnowledgeSearchResult,
   type PythonKnowledgeSource,
 } from "./backend/pythonBackendClient";
 import { ModelProviderError } from "./model-provider/openai";
@@ -110,6 +111,8 @@ import type {
   ChatMessage,
   CompanionProfile,
   EmbeddingProviderLocalConfig,
+  KnowledgeTrace,
+  KnowledgeTraceHit,
   KnowledgeSourceType,
   LocalDataExport,
   MemoryCandidate,
@@ -167,6 +170,7 @@ const shouldAutoOpenOnboarding =
   initialOnboardingState.status === "new" && Object.values(initialMessagesByCompanionId).every((messages) => messages.length === 0);
 const APP_DISPLAY_NAME = "所依";
 const DEFAULT_ROMANCE_COMPANION_ID = "companion-romance";
+const MAX_KNOWLEDGE_TRACE_HITS = 3;
 const providerPresets = [
   {
     id: "deepseek-flash",
@@ -246,12 +250,15 @@ const embeddingProviderPresets = [
   },
 ] as const;
 
-function makeMessage(role: ChatMessage["role"], content: string): ChatMessage {
+type ChatMessageExtras = Omit<Partial<ChatMessage>, "id" | "role" | "content" | "createdAt">;
+
+function makeMessage(role: ChatMessage["role"], content: string, extras?: ChatMessageExtras): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role,
     content,
     createdAt: new Date().toISOString(),
+    ...extras,
   };
 }
 
@@ -419,6 +426,90 @@ function splitAssistantReply(content: string): string[] {
   }
   if (current) segments.push(current);
   return segments;
+}
+
+function buildKnowledgeTrace(searchResult: PythonKnowledgeSearchResult): KnowledgeTrace | undefined {
+  if (!searchResult.shouldInject || !searchResult.promptContext.trim() || searchResult.hits.length === 0) return undefined;
+  return {
+    mode: searchResult.mode,
+    shouldInject: true,
+    needsClarification: Boolean(searchResult.needsClarification),
+    reason: searchResult.reason,
+    ftsReady: Boolean(searchResult.ftsReady),
+    embeddingUsed: Boolean(searchResult.embeddingUsed),
+    embeddingReady: Boolean(searchResult.embeddingReady),
+    embeddingReason: searchResult.embeddingReason,
+    hits: searchResult.hits.slice(0, MAX_KNOWLEDGE_TRACE_HITS).map((hit) => ({
+      sourceId: hit.sourceId,
+      sourceTitle: hit.sourceTitle,
+      chunkIndex: hit.chunkIndex,
+      content: trimKnowledgeSnippet(hit.content),
+      score: hit.score,
+      headingPath: hit.headingPath,
+      chunkType: hit.chunkType,
+      scores: hit.scores ?? {},
+      metadata: hit.metadata ?? {},
+    })),
+  };
+}
+
+function getKnowledgeModeLabel(mode?: string): string {
+  const labels: Record<string, string> = {
+    fts5: "FTS5",
+    keyword: "关键词",
+    "keyword-fallback": "关键词兜底",
+    hybrid: "混合检索",
+    "hybrid-fallback": "混合降级",
+  };
+  return mode ? labels[mode] ?? mode : "本地检索";
+}
+
+function getKnowledgeChunkTypeLabel(type?: string): string {
+  const labels: Record<string, string> = {
+    fact_block: "事实块",
+    list: "列表",
+    paragraph: "段落",
+    qa: "问答",
+    table_block: "表格",
+    table_row: "表格行",
+  };
+  return type ? labels[type] ?? type : "";
+}
+
+function knowledgeMetadataText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function getKnowledgeHitBadges(hit: KnowledgeTraceHit): string[] {
+  const metadata = hit.metadata ?? {};
+  const fileName = knowledgeMetadataText(metadata.fileName);
+  const page = knowledgeMetadataText(metadata.page);
+  const tableIndex = knowledgeMetadataText(metadata.tableIndex);
+  const rowIndex = knowledgeMetadataText(metadata.rowIndex);
+  const chunkType = getKnowledgeChunkTypeLabel(hit.chunkType);
+  const badges = [
+    fileName,
+    page ? `第 ${page} 页` : "",
+    tableIndex && rowIndex ? `表格 ${tableIndex} 第 ${rowIndex} 行` : tableIndex ? `表格 ${tableIndex}` : "",
+    hit.headingPath?.trim() ?? "",
+    chunkType,
+    `分数 ${hit.score.toFixed(1)}`,
+  ];
+  return Array.from(new Set(badges.filter(Boolean)));
+}
+
+function formatKnowledgeTraceSummary(trace: KnowledgeTrace): string {
+  const parts = [getKnowledgeModeLabel(trace.mode)];
+  if (trace.embeddingUsed) parts.push(trace.embeddingReady ? "向量参与" : "向量降级");
+  parts.push(`已注入 ${trace.hits.length} 条`);
+  return parts.join(" · ");
+}
+
+function trimKnowledgeSnippet(content: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
 }
 
 function getReplySegmentDelay(segment: string, index: number): number {
@@ -1305,6 +1396,7 @@ export default function App() {
     setIsAssistantTyping(true);
 
     let knowledgeContext = "";
+    let knowledgeTrace: KnowledgeTrace | undefined;
     if (knowledgeBackendHealth.available) {
       try {
         const embeddingRuntimeConfig = canUseEmbedding ? embeddingConfig : undefined;
@@ -1316,6 +1408,7 @@ export default function App() {
           embeddingRuntimeConfig,
         });
         knowledgeContext = searchResult.promptContext;
+        knowledgeTrace = buildKnowledgeTrace(searchResult);
       } catch (searchError) {
         setKnowledgeBackendHealth({
           available: false,
@@ -1346,7 +1439,10 @@ export default function App() {
       for (const [index, segment] of segments.entries()) {
         await wait(getReplySegmentDelay(segment, index));
         if (responseSequenceRef.current !== responseSequence || activeCompanionId !== sendingCompanionId) return;
-        setCompanionMessages(sendingCompanionId, (current) => [...current, makeMessage("assistant", segment)]);
+        setCompanionMessages(sendingCompanionId, (current) => [
+          ...current,
+          makeMessage("assistant", segment, index === 0 && knowledgeTrace ? { knowledgeTrace } : undefined),
+        ]);
       }
     } catch (err) {
       setError(getFriendlyError(err));
@@ -2255,6 +2351,31 @@ export default function App() {
                         {splitMessageParts(message.content).map((part, index) => (
                           <p key={`${message.id}-${index}`}>{part}</p>
                         ))}
+                        {message.role === "assistant" && message.knowledgeTrace?.hits.length ? (
+                          <section className="knowledge-trace" aria-label="本次回答参考资料">
+                            <div className="knowledge-trace-header">
+                              <BookOpen size={14} />
+                              <strong>参考资料</strong>
+                              <span>{formatKnowledgeTraceSummary(message.knowledgeTrace)}</span>
+                            </div>
+                            <div className="knowledge-trace-list">
+                              {message.knowledgeTrace.hits.map((hit) => (
+                                <article className="knowledge-trace-hit" key={`${message.id}-${hit.sourceId}-${hit.chunkIndex}`}>
+                                  <div className="knowledge-trace-title">
+                                    <strong>{hit.sourceTitle}</strong>
+                                    <span>片段 {hit.chunkIndex + 1}</span>
+                                  </div>
+                                  <div className="knowledge-trace-meta">
+                                    {getKnowledgeHitBadges(hit).map((badge) => (
+                                      <span key={badge}>{badge}</span>
+                                    ))}
+                                  </div>
+                                  <p className="knowledge-trace-snippet">{trimKnowledgeSnippet(hit.content)}</p>
+                                </article>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
                       </div>
                     </article>
                   ))

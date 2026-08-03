@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import backend.app.embeddings as embeddings
 from backend.app.main import app
+from backend.app.schemas import EmbeddingRuntimeConfig
 
 
 def fake_embedding_key() -> str:
@@ -170,7 +171,20 @@ def test_mock_embedding_health_reindex_is_idempotent_and_hybrid_finds_semantic_m
         assert semantic_data["embeddingReady"] is True
         assert semantic_data["shouldInject"] is True
         assert semantic_data["hits"][0]["sourceTitle"] == "松果客服规范"
+        assert semantic_data["hits"][0]["metadata"]["sourceTitle"] == "松果客服规范"
         assert "用户导入资料" in semantic_data["promptContext"]
+
+        with sqlite3.connect(db_path) as connection:
+            connection.row_factory = sqlite3.Row
+            vector_result = embeddings.search_embedding_candidates(
+                connection,
+                query="support clarify first",
+                runtime_config=EmbeddingRuntimeConfig(**runtime),
+                source_ids=set(),
+                limit=5,
+            )
+        vector_candidate = next(candidate for candidate in vector_result.candidates if candidate.source_title == "松果客服规范")
+        assert vector_candidate.metadata["sourceTitle"] == "松果客服规范"
 
 
 def test_ollama_embedding_does_not_require_api_key(tmp_path: Path, monkeypatch) -> None:

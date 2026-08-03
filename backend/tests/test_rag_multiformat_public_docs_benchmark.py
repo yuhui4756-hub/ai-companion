@@ -461,6 +461,29 @@ def test_public_multiformat_file_metadata_and_table_rows(tmp_path: Path, monkeyp
         for source in client.get("/knowledge/sources").json():
             source_counts[source["sourceType"]] = source_counts.get(source["sourceType"], 0) + 1
 
+        electron_search = client.post("/knowledge/search", json={"query": "Electron 安全表里 contextIsolation 推荐值是什么？", "topK": 5})
+        assert electron_search.status_code == 200
+        electron_hit = next(
+            hit
+            for hit in electron_search.json()["hits"]
+            if hit["sourceTitle"] == "Electron 安全边界多格式摘要"
+            and hit["metadata"].get("tableIndex") == 1
+            and hit["metadata"].get("rowIndex") == 2
+        )
+        electron_metadata = electron_hit["metadata"]
+        assert electron_metadata["sourceFormat"] == "docx"
+        assert electron_metadata["fileName"] == "Electron 安全边界多格式摘要.docx"
+        assert electron_metadata["tableIndex"] == 1
+        assert electron_metadata["rowIndex"] == 2
+
+        fastapi_search = client.post("/knowledge/search", json={"query": "FastAPI TestClient 怎么包装应用？", "topK": 3})
+        assert fastapi_search.status_code == 200
+        fastapi_hit = next(hit for hit in fastapi_search.json()["hits"] if hit["sourceTitle"] == "FastAPI TestClient 多格式摘要")
+        fastapi_metadata = fastapi_hit["metadata"]
+        assert fastapi_metadata["sourceFormat"] == "pdf_text"
+        assert fastapi_metadata["fileName"] == "FastAPI TestClient 多格式摘要.pdf"
+        assert fastapi_metadata["page"] in {1, 2}
+
     assert source_counts["markdown"] >= 2
     assert source_counts["plain_text_file"] >= 2
     assert source_counts["pdf_text"] >= 2

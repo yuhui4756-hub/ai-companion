@@ -384,6 +384,14 @@ def structural_metadata_from_heading(path: list[str]) -> dict[str, Any]:
     return metadata
 
 
+def parse_chunk_metadata(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -1303,6 +1311,7 @@ def build_candidates(rows: list[sqlite3.Row], analysis: QueryAnalysis, *, from_f
                     headingPath=row["heading_path"] or "",
                     chunkType=row["chunk_type"] or "paragraph",
                     scores={key: round(value, 3) for key, value in scores.items() if value > 0},
+                    metadata=parse_chunk_metadata(row["metadata_json"]),
                 ),
             )
         )
@@ -1339,6 +1348,7 @@ def vector_candidate_to_search_candidate(candidate: VectorCandidate, analysis: Q
             headingPath=candidate.heading_path,
             chunkType=candidate.chunk_type,
             scores=scores,
+            metadata=candidate.metadata,
         ),
     )
 

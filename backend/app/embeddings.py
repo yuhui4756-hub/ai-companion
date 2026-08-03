@@ -69,6 +69,7 @@ class VectorCandidate:
     content: str
     heading_path: str
     chunk_type: str
+    metadata: dict[str, Any]
     cosine: float
 
 
@@ -82,6 +83,14 @@ class VectorSearchResult:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def parse_metadata_json(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def stable_json(value: Any) -> str:
@@ -872,7 +881,8 @@ def fetch_ready_vector_rows(
     return connection.execute(
         f"""
         SELECT e.vector_json, e.vector_norm, c.id AS chunk_id, c.source_id, s.title AS source_title,
-               c.chunk_index, c.content, c.heading_path, c.chunk_type, c.content_hash, c.chunker_version
+               c.chunk_index, c.content, c.heading_path, c.chunk_type, c.content_hash, c.chunker_version,
+               c.metadata_json
         FROM knowledge_embeddings e
         JOIN knowledge_chunks c ON c.id = e.chunk_id
         JOIN knowledge_sources s ON s.id = c.source_id
@@ -936,6 +946,7 @@ def search_embedding_candidates(
                 content=row["content"],
                 heading_path=row["heading_path"] or "",
                 chunk_type=row["chunk_type"] or "paragraph",
+                metadata=parse_metadata_json(row["metadata_json"]),
                 cosine=cosine,
             )
         )

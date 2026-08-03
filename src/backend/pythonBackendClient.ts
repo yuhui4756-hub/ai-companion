@@ -108,6 +108,7 @@ export type PythonKnowledgeHit = {
   headingPath?: string;
   chunkType?: string;
   scores?: Record<string, number>;
+  metadata?: Record<string, unknown>;
 };
 
 export type PythonKnowledgeSearchResult = {
