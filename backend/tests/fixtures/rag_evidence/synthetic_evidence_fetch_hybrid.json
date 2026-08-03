@@ -1,0 +1,64 @@
+{
+  "version": "suoyi-rag-evidence-v1",
+  "exportedAt": "2026-08-03T09:14:00.000Z",
+  "companion": {
+    "id": "synthetic-companion",
+    "name": "测试伴侣"
+  },
+  "question": {
+    "id": "user-fetch-hybrid",
+    "content": "浏览器请求拿到 500 时是不是一定进 catch？",
+    "createdAt": "2026-08-03T09:13:48.000Z"
+  },
+  "answer": {
+    "id": "assistant-fetch-hybrid",
+    "content": "不是。资料里说 404 或 500 这类 HTTP 错误状态不会自动让 Promise reject，业务代码应检查 response.ok 或 response.status。",
+    "createdAt": "2026-08-03T09:14:00.000Z"
+  },
+  "summary": {
+    "mode": "hybrid",
+    "shouldInject": true,
+    "needsClarification": false,
+    "embeddingUsed": true,
+    "embeddingReady": true,
+    "hitCount": 1,
+    "topSourceId": "source-mdn-fetch",
+    "topSourceTitle": "MDN Fetch API 多格式摘要",
+    "topChunkIndex": 1,
+    "topScore": 0.041
+  },
+  "trace": {
+    "mode": "hybrid",
+    "shouldInject": true,
+    "needsClarification": false,
+    "reason": "hybrid result passed source and vector thresholds",
+    "ftsReady": true,
+    "embeddingUsed": true,
+    "embeddingReady": true,
+    "hits": [
+      {
+        "sourceId": "source-mdn-fetch",
+        "sourceTitle": "MDN Fetch API 多格式摘要",
+        "chunkIndex": 1,
+        "content": "HTTP 边界：404 或 500 这类 HTTP 错误状态不会自动让 Promise reject。错误判断：业务代码应检查 response.ok 或 response.status。",
+        "score": 0.041,
+        "headingPath": "MDN Fetch API 多格式摘要 > 请求与响应",
+        "chunkType": "fact_block",
+        "scores": {
+          "lexical": 9.2,
+          "vector": 0.78,
+          "rrf": 0.041
+        },
+        "metadata": {
+          "sourceFormat": "markdown",
+          "fileName": "MDN Fetch API 多格式摘要.md"
+        }
+      }
+    ]
+  },
+  "privacy": {
+    "apiKeyIncluded": false,
+    "fullKnowledgeChunkIncluded": false,
+    "note": "合成 fixture，只包含短摘录级引用证据。"
+  }
+}

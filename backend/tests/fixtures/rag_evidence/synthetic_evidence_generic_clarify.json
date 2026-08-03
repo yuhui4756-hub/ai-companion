@@ -1,0 +1,45 @@
+{
+  "version": "suoyi-rag-evidence-v1",
+  "exportedAt": "2026-08-03T09:12:00.000Z",
+  "companion": {
+    "id": "synthetic-companion",
+    "name": "测试伴侣"
+  },
+  "question": {
+    "id": "user-generic-base-url",
+    "content": "Base URL 是什么？",
+    "createdAt": "2026-08-03T09:11:54.000Z"
+  },
+  "answer": {
+    "id": "assistant-generic-base-url",
+    "content": "需要先指定是哪份资料或哪个服务的 Base URL。",
+    "createdAt": "2026-08-03T09:12:00.000Z"
+  },
+  "summary": {
+    "mode": "fts5",
+    "shouldInject": false,
+    "needsClarification": true,
+    "embeddingUsed": false,
+    "embeddingReady": false,
+    "hitCount": 0,
+    "topSourceId": null,
+    "topSourceTitle": null,
+    "topChunkIndex": null,
+    "topScore": null
+  },
+  "trace": {
+    "mode": "fts5",
+    "shouldInject": false,
+    "needsClarification": true,
+    "reason": "generic field query without source signal",
+    "ftsReady": true,
+    "embeddingUsed": false,
+    "embeddingReady": false,
+    "hits": []
+  },
+  "privacy": {
+    "apiKeyIncluded": false,
+    "fullKnowledgeChunkIncluded": false,
+    "note": "合成 fixture，只包含短摘录级引用证据。"
+  }
+}

@@ -516,8 +516,14 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
             "enabled": True,
             "apiKey": "",
         }
-        all_cases = [(corpus["lexical_suite"], case) for case in corpus["lexical_cases"]]
-        all_cases.extend((corpus["hybrid_suite"], case) for case in corpus["hybrid_cases"])
+        if args.case_file:
+            from backend.tests.rag_case_loader import load_benchmark_cases
+
+            case_file_cases = load_benchmark_cases(args.case_file, corpus_id=args.corpus)
+            all_cases = [(f"{args.corpus}/case-file", case) for case in case_file_cases]
+        else:
+            all_cases = [(corpus["lexical_suite"], case) for case in corpus["lexical_cases"]]
+            all_cases.extend((corpus["hybrid_suite"], case) for case in corpus["hybrid_cases"])
         selected_cases = select_cases(all_cases, args.limit, args.case_names, args.offset, args.selection_mode)
 
         results: list[AnswerResult] = []
@@ -530,6 +536,8 @@ def run_answer_benchmark(args: argparse.Namespace) -> list[AnswerResult]:
                 print("")
                 print("本报告验证的是“检索片段注入后，本地聊天模型能否答出关键事实”，不等同于线上真实用户准确率。")
                 print(f"- corpus: {args.corpus}")
+                if args.case_file:
+                    print(f"- case_file: {args.case_file}")
                 print(f"- corpus_documents: {len(corpus['documents'])}")
                 print(f"- selected_cases: {len(selected_cases)}/{len(all_cases)}")
                 print(f"- chat_provider: {args.chat_provider}")
@@ -647,6 +655,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--selection-mode", choices=("balanced", "ordered"), default="balanced")
     parser.add_argument("--case-names", default="", help="Comma-separated benchmark case names to run.")
+    parser.add_argument("--case-file", default="", help="Reviewed/active suoyi-rag-benchmark-case-v1 JSON or JSONL file.")
     parser.add_argument("--max-failures", type=int, default=20)
     parser.add_argument("--output-json", default="")
     parser.add_argument(

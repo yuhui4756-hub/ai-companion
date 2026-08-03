@@ -146,6 +146,36 @@ RAG-H2 第一轮已经具备可重复的检索质量基准。它证明的是“�
 - 聊天模型是否正确使用“用户导入资料”，并在资料不足时愿意澄清。
 - 当前 UI 可在“知识”面板上传 `.txt/.md/.pdf/.docx` 文本层文件，也保留粘贴纯文本和 Markdown；图表、图片、扫描件和 OCR 仍需要后续策略。
 
+## Evidence 到 Benchmark Case 的沉淀流程
+
+RAG-M4-A 增加 `scripts/rag_evidence_case_tool.py`，把 UI 导出的单条回答 evidence JSON 转成可人工复核的 benchmark case draft。这个工具只读取命令行显式传入的 JSON/JSONL，不扫描 Electron `userData`、真实 SQLite 或用户目录，也不会上传任何内容。
+
+推荐本地流程：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py draft --input .\path\to\suoyi-rag-evidence.json --output .suoyi-rag-cases\drafts\case.json
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py validate --input .suoyi-rag-cases\drafts\case.json
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py to-jsonl --input .suoyi-rag-cases\reviewed --output .suoyi-rag-cases\reviewed-cases.jsonl
+```
+
+草稿 case 使用 `suoyi-rag-benchmark-case-v1`。工具会自动填入 query、检索模式、top source、短摘录、metadata 和隐私初始状态；`requiredFacts`、`forbiddenFacts`、`requiredSourceTitles` 等期望字段必须由人工补全或确认。默认草稿为 `status=draft`、`safeToCommit=false`、`containsUserPrivateText=true`，不能计入正式通过率，也不应直接提交到仓库。
+
+已人工复核的 case 可以标记为 `reviewed` 或 `active`，并用现有回答评测入口运行：
+
+```powershell
+.\.venv\Scripts\python scripts\rag_evidence_case_tool.py validate --input backend\tests\fixtures\rag_evidence_cases\synthetic_cases.jsonl --require-runnable
+.\.venv\Scripts\python scripts\rag_answer_benchmark.py --corpus public-multiformat --case-file backend\tests\fixtures\rag_evidence_cases\synthetic_cases.jsonl --allow-failures
+```
+
+`--case-file` 只接受 `reviewed/active` 且 expected 字段完整的 case，并要求 case 的 `corpus.id` 与 `--corpus` 一致。回答评测仍会按所选 corpus 重新 seed 临时 SQLite，再执行检索、可选 embedding reindex 和聊天模型评分；如果本地 Ollama 或远程聊天模型不可用，这一步可能失败，不影响 case 转换工具本身。
+
+安全边界：
+
+- evidence JSON 和 draft case 可能包含用户问题、助手回答和短摘录，默认按本地私有材料处理。
+- 工具发现疑似 `sk-`、`Bearer ...`、`GH_TOKEN`、`github_pat_`、Cookie、access token 或 API Key 字段值时会拒绝处理，并且错误信息不回显密钥原文。
+- 仓库中只提交合成或公开摘要 fixture；真实私有 case 建议放在 `.suoyi-rag-cases/`，该目录已加入 `.gitignore`。
+- evidence 转 case 能让样例持续沉淀和复跑，但它不自动判断答案正确，也不证明线上真实准确率。
+
 ## 下一轮真实数据评测建议
 
 准备一批不含隐私和真实密钥的 Markdown 资料，建议 10-20 篇，每篇 500-3000 字。优先包含：

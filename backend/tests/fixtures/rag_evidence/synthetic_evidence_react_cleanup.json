@@ -1,0 +1,63 @@
+{
+  "version": "suoyi-rag-evidence-v1",
+  "exportedAt": "2026-08-03T09:10:00.000Z",
+  "companion": {
+    "id": "synthetic-companion",
+    "name": "测试伴侣"
+  },
+  "question": {
+    "id": "user-react-cleanup",
+    "content": "React useEffect 依赖变化时 cleanup 和 setup 顺序是什么？",
+    "createdAt": "2026-08-03T09:09:55.000Z"
+  },
+  "answer": {
+    "id": "assistant-react-cleanup",
+    "content": "React 会先用旧值运行 cleanup，再用新值运行 setup。",
+    "createdAt": "2026-08-03T09:10:00.000Z"
+  },
+  "summary": {
+    "mode": "fts5",
+    "shouldInject": true,
+    "needsClarification": false,
+    "embeddingUsed": false,
+    "embeddingReady": false,
+    "hitCount": 1,
+    "topSourceId": "source-react-useeffect",
+    "topSourceTitle": "React useEffect 多格式摘要",
+    "topChunkIndex": 0,
+    "topScore": 13.4
+  },
+  "trace": {
+    "mode": "fts5",
+    "shouldInject": true,
+    "needsClarification": false,
+    "reason": "strong lexical source title and fact match",
+    "ftsReady": true,
+    "embeddingUsed": false,
+    "embeddingReady": false,
+    "hits": [
+      {
+        "sourceId": "source-react-useeffect",
+        "sourceTitle": "React useEffect 多格式摘要",
+        "chunkIndex": 0,
+        "content": "依赖变化：React 会先用旧值运行 cleanup，再用新值运行 setup。卸载规则：组件从页面移除后，React 会最后运行 cleanup。",
+        "score": 13.4,
+        "headingPath": "React useEffect 多格式摘要 > 生命周期",
+        "chunkType": "fact_block",
+        "scores": {
+          "lexical": 13.4,
+          "title": 2.5
+        },
+        "metadata": {
+          "sourceFormat": "markdown",
+          "fileName": "React useEffect 多格式摘要.md"
+        }
+      }
+    ]
+  },
+  "privacy": {
+    "apiKeyIncluded": false,
+    "fullKnowledgeChunkIncluded": false,
+    "note": "合成 fixture，只包含短摘录级引用证据。"
+  }
+}
