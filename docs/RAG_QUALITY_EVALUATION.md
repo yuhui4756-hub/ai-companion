@@ -350,3 +350,15 @@ RAG-M4-C 新增独立 `public-m4c` corpus，用来沉淀可提交、可复跑的
 
 - 可以写：构建 `public-m4c` 公开摘要/合成 RAG benchmark corpus，覆盖 19 份 Markdown/TXT/PDF/DOCX 文本层资料和 42 条 reviewed/active case，将检索命中、prompt 注入门控、最终回答评分与失败分类统一接入可复跑脚本。
 - 必须带边界：该指标只代表指定公开摘要/合成语料、指定模型/运行环境和指定日期的本地评测结果，不等同于线上真实用户资料准确率，也不覆盖扫描件 OCR、图片图表理解或未导入资料。
+
+2026-08-03 M4-D 远程聊天模型对照：
+
+- embedding：本地 Ollama `bge-m3`，向量索引 55 个 active chunk。
+- chat：远程 OpenAI-compatible `deepseek-v4-flash`，thinking enabled；API Key 只从本机环境变量 `DEEPSEEK_API_KEY` 读取，不写入文档、日志、SQLite、测试 fixture 或提交记录。
+- 范围：`public-m4c` 19 份公开摘要/合成多格式资料，42 条 active case，按原始顺序全量运行。
+- 检索门：42/42 通过，pass rate 为 100.0%。
+- 最终回答：42/42 通过，pass rate 为 100.0%；失败分类为空。
+- 耗时：42 题总耗时约 177.7 秒，平均约 4.2 秒/题。
+- 对照意义：同一题集下，本地小模型 `deepseek-r1:1.5b` 因空答导致最终回答 0/42；远程 `deepseek-v4-flash` 说明当前检索与 prompt 注入给到可用模型后，可以在该公开摘要/合成基准上稳定答出 required facts 并避开 forbidden facts。
+
+对外表述建议：可以说“在 19 份公开摘要/合成多格式资料、42 条 active case 的 `public-m4c` 基准上，本地 `bge-m3` hybrid 检索门 100.0%，远程 DeepSeek `deepseek-v4-flash` 最终回答自动评分 100.0%，平均约 4.2 秒/题”。必须同时说明：这是指定公开摘要/合成语料、指定模型与 2026-08-03 本地评测环境下的结果，不等同于线上真实用户资料准确率。
